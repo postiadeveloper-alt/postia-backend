@@ -1,0 +1,51 @@
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // Global prefix
+  app.setGlobalPrefix('api');
+
+  // CORS
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:19006'],
+    credentials: true,
+  });
+
+  // Validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
+  // Swagger documentation
+  const config = new DocumentBuilder()
+    .setTitle('Postia API')
+    .setDescription('Content planning and scheduler API for marketing agencies')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .addTag('auth', 'Authentication endpoints')
+    .addTag('instagram', 'Instagram account management')
+    .addTag('calendar', 'Content calendar management')
+    .addTag('analytics', 'Instagram analytics')
+    .addTag('trending', 'Trending topics')
+    .addTag('business-profile', 'Business profile management')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+
+  console.log(`🚀 Application is running on: http://localhost:${port}`);
+  console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+}
+
+bootstrap();

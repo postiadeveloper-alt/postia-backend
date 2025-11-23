@@ -1,0 +1,62 @@
+# Dependencies
+/node_modules
+/package-lock.json
+/yarn.lock
+/pnpm-lock.yaml
+
+# Compiled output
+/dist
+/build
+/out
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+/coverage
+/.nyc_output
+/test-results
+
+# IDEs and editors
+/.idea
+/.vscode
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# Environment variables (CRITICAL - Never commit these!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Temp files
+*.swp
+*.swo
+*~
+.tmp/
+.cache/
+
+# Database
+*.sqlite
+*.db
+
+# Uploads (if storing locally)
+/uploads
+/public/uploads

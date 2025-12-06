@@ -8,9 +8,9 @@ import { CalendarModule } from './calendar/calendar.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TrendingModule } from './trending/trending.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { StorageModule } from './storage/storage.module';
 import { typeOrmConfig } from './config/typeorm.config';
-
-import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -21,7 +21,6 @@ import { ScheduleModule } from '@nestjs/schedule';
     TypeOrmModule.forRootAsync({
       useFactory: () => typeOrmConfig,
     }),
-    ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
     InstagramModule,
@@ -29,6 +28,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     AnalyticsModule,
     TrendingModule,
     BusinessProfileModule,
+    SchedulerModule,
+    StorageModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

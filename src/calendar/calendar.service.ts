@@ -1,46 +1,67 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Post, PostStatus } from './entities/post.entity';
 import { CreatePostDto, UpdatePostDto } from './dto/post.dto';
 import { InstagramService } from '../instagram/instagram.service';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class CalendarService {
+  private readonly logger = new Logger(CalendarService.name);
+
   constructor(
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
     private readonly instagramService: InstagramService,
-  ) { }
+  ) {}
 
-  @Cron(CronExpression.EVERY_MINUTE)
-  async checkScheduledPosts() {
+  /**
+   * Check for scheduled posts and publish them if their scheduled time has passed
+   * This method is designed to be called by Cloud Scheduler via HTTP endpoint
+   * REMOVED: @Cron decorator - now triggered externally via Cloud Scheduler
+   */
+  async checkScheduledPosts(): Promise<{
+    success: boolean;
+    postsChecked: number;
+    postsPublished: number;
+    postsFailed: number;
+  }> {
     const now = new Date();
-    console.log('Checking for scheduled posts at:', now.toISOString());
+    this.logger.log(`🔍 Checking for scheduled posts at: ${now.toISOString()}`);
+
+    let postsPublished = 0;
+    let postsFailed = 0;
 
     const scheduledPosts = await this.postRepository.find({
       where: {
         status: PostStatus.SCHEDULED,
-        scheduledAt: Between(new Date(0), now), // Find posts scheduled in the past that are still 'scheduled'
+        scheduledAt: Between(new Date(0), now),
       },
       relations: ['instagramAccount'],
     });
 
-    console.log(`Found ${scheduledPosts.length} posts to publish`);
+    this.logger.log(`📊 Found ${scheduledPosts.length} posts to publish`);
 
     for (const post of scheduledPosts) {
       try {
-        console.log(`Publishing post ${post.id}...`);
+        this.logger.log(`📤 Publishing post ${post.id}...`);
         await this.publish(post.id);
-        console.log(`Post ${post.id} published successfully`);
+        this.logger.log(`✅ Post ${post.id} published successfully`);
+        postsPublished++;
       } catch (error) {
-        console.error(`Failed to publish post ${post.id}:`, error);
-        // Optionally update status to FAILED
+        this.logger.error(`❌ Failed to publish post ${post.id}: ${error.message}`, error);
         post.status = PostStatus.FAILED;
         await this.postRepository.save(post);
+        postsFailed++;
       }
     }
+
+    return {
+      success: true,
+      postsChecked: scheduledPosts.length,
+      postsPublished,
+      postsFailed,
+    };
   }
 
   async create(createPostDto: CreatePostDto): Promise<Post> {

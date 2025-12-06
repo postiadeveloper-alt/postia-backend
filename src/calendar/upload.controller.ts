@@ -5,61 +5,38 @@ import {
   UseInterceptors,
   BadRequestException,
   UseGuards,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
-import type { File } from 'multer';
-import { extname } from 'path';
+import * as path from 'path';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { v2 as cloudinary } from 'cloudinary';
-import * as streamifier from 'streamifier';
+import { GcsService } from '../storage/gcs.service';
 
 // File validation constants
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024; // 8MB for images
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB for videos
-const ALLOWED_IMAGE_TYPES = /jpeg|jpg|png|gif/;
-const ALLOWED_VIDEO_TYPES = /mp4|mov/;
+const ALLOWED_IMAGE_TYPES = /jpeg|jpg|png|gif|webp/;
+const ALLOWED_VIDEO_TYPES = /mp4|mov|avi|webm/;
 
 @ApiTags('upload')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('upload')
 export class UploadController {
-  constructor() {
-    // Configure Cloudinary explicitly
-    cloudinary.config({
-      cloud_name: 'dypxxjwqe',
-      api_key: '567828275976586',
-      api_secret: 'yjNSe1_t_uS5sCsmPkUOpObtj_g',
-      secure: true,
-    });
-    console.log('✅ Cloudinary configured');
-  }
+  private readonly logger = new Logger(UploadController.name);
 
-  private uploadToCloudinary(file: Buffer, folder: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: folder,
-          resource_type: 'auto', // Automatically detect if image or video
-        },
-        (error, result) => {
-          if (error) return reject(error);
-          resolve(result);
-        },
-      );
-
-      streamifier.createReadStream(file).pipe(uploadStream);
-    });
+  constructor(private readonly gcsService: GcsService) {
+    this.logger.log('✅ Upload controller initialized with GCS storage');
   }
 
   @Post('media')
-  @ApiOperation({ summary: 'Upload media file (image or video) to Cloudinary' })
+  @ApiOperation({ summary: 'Upload media file (image or video) to Google Cloud Storage' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileInterceptor('file', {
       fileFilter: (req, file, callback) => {
-        const ext = extname(file.originalname).toLowerCase();
+        const ext = path.extname(file.originalname).toLowerCase();
         const mimetype = file.mimetype.toLowerCase();
 
         // Check if it's an image
@@ -69,7 +46,7 @@ export class UploadController {
           } else {
             callback(
               new BadRequestException(
-                'Invalid image format. Allowed formats: JPEG, PNG, GIF',
+                'Invalid image format. Allowed formats: JPEG, PNG, GIF, WebP',
               ),
               false,
             );
@@ -82,7 +59,7 @@ export class UploadController {
           } else {
             callback(
               new BadRequestException(
-                'Invalid video format. Allowed formats: MP4, MOV',
+                'Invalid video format. Allowed formats: MP4, MOV, AVI, WebM',
               ),
               false,
             );
@@ -99,7 +76,7 @@ export class UploadController {
       },
     }),
   )
-  async uploadMedia(@UploadedFile() file: File) {
+  async uploadMedia(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -117,29 +94,30 @@ export class UploadController {
     }
 
     try {
-      // Upload to Cloudinary
-      const result = await this.uploadToCloudinary(
-        file.buffer,
-        'postia/media',
-      );
+      // Upload to Google Cloud Storage
+      const result = await this.gcsService.uploadFile(file, 'posts');
 
-      console.log('✅ File uploaded to Cloudinary:', result.secure_url);
+      this.logger.log(`✅ File uploaded to GCS: ${result.publicUrl}`);
 
       // Return file information
       return {
-        url: result.secure_url, // Public Cloudinary URL
-        filename: result.public_id,
-        originalName: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        type: isImage ? 'image' : 'video',
-        cloudinaryId: result.public_id,
+        success: true,
+        message: 'File uploaded successfully',
+        data: {
+          url: result.publicUrl, // Public GCS URL
+          path: result.path, // Full path in bucket
+          originalName: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          type: isImage ? 'image' : 'video',
+        },
       };
     } catch (error) {
-      console.error('❌ Cloudinary upload error:', error);
+      this.logger.error(`❌ GCS upload error: ${error.message}`, error);
       throw new BadRequestException(
-        'Failed to upload file to Cloudinary: ' + error.message,
+        'Failed to upload file to Cloud Storage: ' + error.message,
       );
     }
   }
 }
+

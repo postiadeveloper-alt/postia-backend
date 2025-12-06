@@ -1,14 +1,4 @@
 import { NestFactory } from '@nestjs/core';
-import { v2 as cloudinary } from 'cloudinary';
-
-// Configure Cloudinary at startup
-cloudinary.config({
-  cloud_name: 'dypxxjwqe',
-  api_key: '567828275976586',
-  api_secret: 'yjNSe1_t_uS5sCsmPkUOpObtj_g',
-  secure: true,
-});
-console.log('✅ Cloudinary configured at startup');
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';

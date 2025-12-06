@@ -3,15 +3,15 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY backend/package*.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm ci
 
 # Copy source code
-COPY backend/src ./src
-COPY backend/tsconfig.json .
-COPY backend/nest-cli.json .
+COPY src ./src
+COPY tsconfig.json .
+COPY nest-cli.json .
 
 # Build the application
 RUN npm run build
@@ -24,7 +24,7 @@ WORKDIR /app
 RUN apk add --no-cache tini
 
 # Copy package files
-COPY backend/package*.json ./
+COPY package*.json ./
 
 # Install production dependencies only
 RUN npm ci --omit=dev

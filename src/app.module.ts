@@ -10,6 +10,8 @@ import { TrendingModule } from './trending/trending.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
 import { typeOrmConfig } from './config/typeorm.config';
 
+import { ScheduleModule } from '@nestjs/schedule';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -19,6 +21,7 @@ import { typeOrmConfig } from './config/typeorm.config';
     TypeOrmModule.forRootAsync({
       useFactory: () => typeOrmConfig,
     }),
+    ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
     InstagramModule,
@@ -28,4 +31,4 @@ import { typeOrmConfig } from './config/typeorm.config';
     BusinessProfileModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('calendar')
 export class CalendarController {
-  constructor(private readonly calendarService: CalendarService) {}
+  constructor(private readonly calendarService: CalendarService) { }
 
   @Post('posts')
   @ApiOperation({ summary: 'Create a new post' })
@@ -86,6 +86,12 @@ export class CalendarController {
   @ApiOperation({ summary: 'Publish post to Instagram' })
   publish(@Param('id') id: string) {
     return this.calendarService.publish(id);
+  }
+
+  @Post('posts/:id/publish-now')
+  @ApiOperation({ summary: 'Publish post to Instagram immediately' })
+  publishNow(@Param('id') id: string) {
+    return this.calendarService.publishNow(id);
   }
 
   @Delete('posts/:id')

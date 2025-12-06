@@ -1,10 +1,27 @@
 import { NestFactory } from '@nestjs/core';
+import { v2 as cloudinary } from 'cloudinary';
+
+// Configure Cloudinary at startup
+cloudinary.config({
+  cloud_name: 'dypxxjwqe',
+  api_key: '567828275976586',
+  api_secret: 'yjNSe1_t_uS5sCsmPkUOpObtj_g',
+  secure: true,
+});
+console.log('✅ Cloudinary configured at startup');
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Serve static files from uploads directory
+  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   // Global prefix
   app.setGlobalPrefix('api');
@@ -33,6 +50,7 @@ async function bootstrap() {
     .addTag('auth', 'Authentication endpoints')
     .addTag('instagram', 'Instagram account management')
     .addTag('calendar', 'Content calendar management')
+    .addTag('upload', 'File upload endpoints')
     .addTag('analytics', 'Instagram analytics')
     .addTag('trending', 'Trending topics')
     .addTag('business-profile', 'Business profile management')

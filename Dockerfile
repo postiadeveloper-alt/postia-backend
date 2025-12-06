@@ -37,11 +37,14 @@ RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nodejs -u 1001
 USER nodejs
 
+# Set default PORT (Cloud Run will override this with 8080)
+ENV PORT=8080
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 8080) + '/api', (r) => {if (r.statusCode !== 404 && r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-EXPOSE 3000
+EXPOSE 8080
 
 # Use tini to handle signals properly
 ENTRYPOINT ["/sbin/tini", "--"]

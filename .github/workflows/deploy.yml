@@ -34,42 +34,25 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-
-      - name: Build Docker image
-        run: |
-          docker build \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest \
-            .
-
-      - name: Push Docker image to Artifact Registry
-        run: |
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
-
-      - name: Deploy to Cloud Run
+      - name: Deploy to Cloud Run from source
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --source . \
             --region=${{ env.REGION }} \
-            --platform=managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 1Gi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 10 \
+            --timeout 300 \
             --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=*,DB_SSL=true" \
-            --set-secrets="DATABASE_URL=postia-db-secret:latest,JWT_SECRET=postia-jwt-secret:latest,INSTAGRAM_APP_ID=postia-instagram-app-id:latest,INSTAGRAM_APP_SECRET=postia-instagram-app-secret:latest" \
-            --cpu=1 \
-            --memory=1Gi \
-            --min-instances=0 \
-            --max-instances=10 \
-            --timeout=300 \
-            --no-cpu-throttling \
-            --allow-unauthenticated \
-            --quiet
+            --set-secrets="DATABASE_URL=postia-db-secret:latest,JWT_SECRET=postia-jwt-secret:latest,INSTAGRAM_APP_ID=postia-instagram-app-id:latest,INSTAGRAM_APP_SECRET=postia-instagram-app-secret:latest"
 
-      - name: Show deployment URL
+      - name: Show service URL
         run: |
           gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --platform managed \
             --region=${{ env.REGION }} \
-            --format='value(status.url)'
+            --format 'value(status.url)'

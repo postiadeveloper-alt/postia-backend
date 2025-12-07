@@ -6,13 +6,23 @@ import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  console.log('🚀 Starting Postia backend...');
-  console.log('Environment:', process.env.NODE_ENV);
-  console.log('Port:', process.env.PORT);
-  console.log('Database URL configured:', !!process.env.DATABASE_URL);
+  console.log('='.repeat(50));
+  console.log('🚀 Starting Postia Backend');
+  console.log('='.repeat(50));
+  console.log('Environment Variables Check:');
+  console.log('  NODE_ENV:', process.env.NODE_ENV);
+  console.log('  PORT:', process.env.PORT);
+  console.log('  DATABASE_URL:', process.env.DATABASE_URL ? '✅ Set' : '❌ Missing');
+  console.log('  JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
+  console.log('  GCP_PROJECT_ID:', process.env.GCP_PROJECT_ID);
+  console.log('  GCS_BUCKET_NAME:', process.env.GCS_BUCKET_NAME);
+  console.log('='.repeat(50));
   
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  console.log('✅ NestJS application created');
+  console.log('Creating NestJS application...');
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+  });
+  console.log('✅ NestJS application created successfully');
 
   // Serve static files from uploads directory
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
@@ -56,13 +66,23 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
-  console.log(`Starting server on port ${port}...`);
+  console.log('='.repeat(50));
+  console.log(`🌐 Starting HTTP server on port ${port}...`);
   await app.listen(port, '0.0.0.0');
-  console.log(`✅ Application is running on: http://0.0.0.0:${port}`);
-  console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  console.log('='.repeat(50));
+  console.log('✅ APPLICATION SUCCESSFULLY STARTED');
+  console.log(`📍 Server listening on: http://0.0.0.0:${port}`);
+  console.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
+  console.log(`🔗 Health check: http://localhost:${port}/api`);
+  console.log('='.repeat(50));
 }
 
 bootstrap().catch(err => {
-  console.error('❌ Failed to start application:', err);
+  console.error('='.repeat(50));
+  console.error('❌ FATAL ERROR - Failed to start application');
+  console.error('='.repeat(50));
+  console.error('Error details:', err);
+  console.error('Stack trace:', err.stack);
+  console.error('='.repeat(50));
   process.exit(1);
 });

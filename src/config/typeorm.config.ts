@@ -14,7 +14,12 @@ export const typeOrmConfig: DataSourceOptions = {
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../migrations/*{.ts,.js}'],
   synchronize: process.env.NODE_ENV === 'development', // Only for development
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  ssl: true, // Always use SSL for NeonDB
+  extra: {
+    ssl: {
+      rejectUnauthorized: false,
+    },
+  },
   logging: false, // Set to true to see SQL queries
 };
 

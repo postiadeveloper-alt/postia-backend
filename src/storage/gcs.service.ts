@@ -19,14 +19,25 @@ export class GcsService {
 
   constructor() {
     try {
-      this.storage = new Storage({
-        projectId: process.env.GCP_PROJECT_ID,
-      });
-      this.bucket = this.storage.bucket(process.env.GCS_BUCKET_NAME);
-      this.logger.log(`✅ GCS initialized with bucket: ${process.env.GCS_BUCKET_NAME}`);
+      const bucketName = process.env.GCS_BUCKET_NAME;
+      const projectId = process.env.GCP_PROJECT_ID;
+
+      if (!bucketName) {
+        this.logger.warn('⚠️ GCS_BUCKET_NAME not configured - GCS will not be available');
+        return;
+      }
+
+      if (!projectId) {
+        this.logger.warn('⚠️ GCP_PROJECT_ID not configured - GCS will not be available');
+        return;
+      }
+
+      this.storage = new Storage({ projectId });
+      this.bucket = this.storage.bucket(bucketName);
+      this.logger.log(`✅ GCS initialized with bucket: ${bucketName}`);
     } catch (error) {
       this.logger.error('Failed to initialize GCS', error);
-      throw error;
+      this.logger.warn('⚠️ GCS will not be available');
     }
   }
 
@@ -41,6 +52,10 @@ export class GcsService {
     folder: string = 'uploads',
   ): Promise<UploadResult> {
     try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
+
       if (!file) {
         throw new BadRequestException('No file provided');
       }
@@ -89,6 +104,9 @@ export class GcsService {
    */
   async deleteFile(filePath: string): Promise<void> {
     try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
       await this.bucket.file(filePath).delete({ ignoreNotFound: true });
       this.logger.log(`✅ File deleted: ${filePath}`);
     } catch (error) {
@@ -107,6 +125,9 @@ export class GcsService {
     expirationMinutes: number = 60,
   ): Promise<string> {
     try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
       const [signedUrl] = await this.bucket.file(filePath).getSignedUrl({
         version: 'v4',
         action: 'read',
@@ -124,6 +145,9 @@ export class GcsService {
    */
   async fileExists(filePath: string): Promise<boolean> {
     try {
+      if (!this.bucket) {
+        return false;
+      }
       const [exists] = await this.bucket.file(filePath).exists();
       return exists;
     } catch (error) {
@@ -137,6 +161,9 @@ export class GcsService {
    */
   async getFileMetadata(filePath: string): Promise<any> {
     try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
       const [metadata] = await this.bucket.file(filePath).getMetadata();
       return metadata;
     } catch (error) {
@@ -150,6 +177,9 @@ export class GcsService {
    */
   async listFiles(prefix: string = ''): Promise<string[]> {
     try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
       const [files] = await this.bucket.getFiles({ prefix });
       return files.map(f => f.name);
     } catch (error) {

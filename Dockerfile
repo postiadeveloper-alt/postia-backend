@@ -49,5 +49,5 @@ EXPOSE 8080
 # Use tini to handle signals properly
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# Start the application
-CMD ["npm", "run", "start:prod"]
+# Start the application directly (better signal handling)
+CMD ["node", "dist/main"]

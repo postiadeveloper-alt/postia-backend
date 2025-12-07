@@ -57,7 +57,7 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=*" \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=*,DB_SSL=true" \
             --set-secrets="DATABASE_URL=postia-db-secret:latest,JWT_SECRET=postia-jwt-secret:latest,INSTAGRAM_APP_ID=postia-instagram-app-id:latest,INSTAGRAM_APP_SECRET=postia-instagram-app-secret:latest" \
             --cpu=1 \
             --memory=1Gi \

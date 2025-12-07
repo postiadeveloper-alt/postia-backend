@@ -6,7 +6,13 @@ import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  console.log('🚀 Starting Postia backend...');
+  console.log('Environment:', process.env.NODE_ENV);
+  console.log('Port:', process.env.PORT);
+  console.log('Database URL configured:', !!process.env.DATABASE_URL);
+  
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  console.log('✅ NestJS application created');
 
   // Serve static files from uploads directory
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {

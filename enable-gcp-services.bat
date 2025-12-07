@@ -1,20 +1,49 @@
 @echo off
 REM Enable required GCP services for Cloud Run deployment
-echo Enabling Cloud Build API...
-gcloud services enable cloudbuild.googleapis.com
+REM IMPORTANT: Run this with YOUR account (not the service account)
 
-echo Enabling Artifact Registry API...
-gcloud services enable artifactregistry.googleapis.com
+set PROJECT_ID=postia-480418
 
-echo Enabling Cloud Run API...
-gcloud services enable run.googleapis.com
+echo ====================================
+echo Enabling GCP APIs for project: %PROJECT_ID%
+echo ====================================
+echo.
+
+echo Make sure you're authenticated with your own account:
+echo   gcloud auth login
+echo.
+echo Setting project...
+gcloud config set project %PROJECT_ID%
 
 echo.
+echo Enabling Cloud Build API...
+gcloud services enable cloudbuild.googleapis.com --project=%PROJECT_ID%
+
+echo.
+echo Enabling Artifact Registry API...
+gcloud services enable artifactregistry.googleapis.com --project=%PROJECT_ID%
+
+echo.
+echo Enabling Cloud Run API...
+gcloud services enable run.googleapis.com --project=%PROJECT_ID%
+
+echo.
+echo ====================================
 echo ✅ All services enabled!
+echo ====================================
 echo.
 echo Now granting permissions to service account...
-echo Please replace YOUR_PROJECT_ID with your actual project ID
 echo.
-echo gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:postia-backend-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/cloudbuild.builds.builder"
+
+gcloud projects add-iam-policy-binding %PROJECT_ID% --member="serviceAccount:postia-backend-sa@%PROJECT_ID%.iam.gserviceaccount.com" --role="roles/cloudbuild.builds.builder"
+
+gcloud projects add-iam-policy-binding %PROJECT_ID% --member="serviceAccount:postia-backend-sa@%PROJECT_ID%.iam.gserviceaccount.com" --role="roles/artifactregistry.writer"
+
+gcloud projects add-iam-policy-binding %PROJECT_ID% --member="serviceAccount:postia-backend-sa@%PROJECT_ID%.iam.gserviceaccount.com" --role="roles/storage.admin"
+
 echo.
-echo gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:postia-backend-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" --role="roles/artifactregistry.writer"
+echo ====================================
+echo ✅ All permissions granted!
+echo ====================================
+echo.
+echo You can now push to GitHub and the deployment should work.

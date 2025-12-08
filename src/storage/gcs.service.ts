@@ -32,12 +32,18 @@ export class GcsService {
         return;
       }
 
-      this.storage = new Storage({ projectId });
+      this.logger.log(`🔧 Initializing GCS with project: ${projectId}, bucket: ${bucketName}`);
+      this.storage = new Storage({ 
+        projectId,
+        // Use Application Default Credentials on Cloud Run
+      });
       this.bucket = this.storage.bucket(bucketName);
-      this.logger.log(`✅ GCS initialized with bucket: ${bucketName}`);
+      this.logger.log(`✅ GCS initialized successfully`);
     } catch (error) {
-      this.logger.error('Failed to initialize GCS', error);
-      this.logger.warn('⚠️ GCS will not be available');
+      this.logger.error(`❌ Failed to initialize GCS: ${error.message}`);
+      this.logger.error(error.stack);
+      this.logger.warn('⚠️ GCS will not be available - continuing without it');
+      // Don't throw - let the app continue without GCS
     }
   }
 

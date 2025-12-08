@@ -25,12 +25,27 @@ export class CalendarService {
     postsChecked: number;
     postsPublished: number;
     postsFailed: number;
+    details?: any[];
   }> {
     const now = new Date();
     this.logger.log(`🔍 Checking for scheduled posts at: ${now.toISOString()}`);
 
     let postsPublished = 0;
     let postsFailed = 0;
+    const details = [];
+
+    // First, log all scheduled posts for debugging
+    const allScheduledPosts = await this.postRepository.find({
+      where: { status: PostStatus.SCHEDULED },
+      relations: ['instagramAccount'],
+      order: { scheduledAt: 'ASC' },
+    });
+
+    this.logger.log(`📋 Total scheduled posts in DB: ${allScheduledPosts.length}`);
+    allScheduledPosts.forEach(post => {
+      const isPast = new Date(post.scheduledAt) <= now;
+      this.logger.log(`  - Post ${post.id}: scheduled for ${post.scheduledAt} (${isPast ? 'READY' : 'FUTURE'})`);
+    });
 
     const scheduledPosts = await this.postRepository.find({
       where: {
@@ -40,19 +55,35 @@ export class CalendarService {
       relations: ['instagramAccount'],
     });
 
-    this.logger.log(`📊 Found ${scheduledPosts.length} posts to publish`);
+    this.logger.log(`📊 Found ${scheduledPosts.length} posts ready to publish`);
 
     for (const post of scheduledPosts) {
       try {
         this.logger.log(`📤 Publishing post ${post.id}...`);
+        this.logger.log(`   Title: ${post.title}`);
+        this.logger.log(`   Media URLs: ${post.mediaUrls?.length || 0}`);
+        this.logger.log(`   Account: @${post.instagramAccount?.username || 'UNKNOWN'}`);
+        
         await this.publish(post.id);
         this.logger.log(`✅ Post ${post.id} published successfully`);
         postsPublished++;
+        details.push({
+          id: post.id,
+          title: post.title,
+          status: 'published',
+        });
       } catch (error) {
-        this.logger.error(`❌ Failed to publish post ${post.id}: ${error.message}`, error);
+        this.logger.error(`❌ Failed to publish post ${post.id}: ${error.message}`);
+        this.logger.error(error.stack);
         post.status = PostStatus.FAILED;
         await this.postRepository.save(post);
         postsFailed++;
+        details.push({
+          id: post.id,
+          title: post.title,
+          status: 'failed',
+          error: error.message,
+        });
       }
     }
 
@@ -61,6 +92,7 @@ export class CalendarService {
       postsChecked: scheduledPosts.length,
       postsPublished,
       postsFailed,
+      details,
     };
   }
 

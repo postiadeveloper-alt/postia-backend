@@ -13,7 +13,7 @@ export class CalendarService {
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
     private readonly instagramService: InstagramService,
-  ) {}
+  ) { }
 
   /**
    * Check for scheduled posts and publish them if their scheduled time has passed
@@ -63,7 +63,7 @@ export class CalendarService {
         this.logger.log(`   Title: ${post.title}`);
         this.logger.log(`   Media URLs: ${post.mediaUrls?.length || 0}`);
         this.logger.log(`   Account: @${post.instagramAccount?.username || 'UNKNOWN'}`);
-        
+
         await this.publish(post.id);
         this.logger.log(`✅ Post ${post.id} published successfully`);
         postsPublished++;
@@ -234,7 +234,12 @@ export class CalendarService {
   }
 
   async publishNow(id: string): Promise<Post> {
+    this.logger.log(`🚀 Publish Now requested for post: ${id}`);
     const post = await this.findOne(id);
+
+    this.logger.log(`📝 Post found: ${post.title}`);
+    this.logger.log(`📷 Media URLs: ${JSON.stringify(post.mediaUrls)}`);
+    this.logger.log(`👤 Instagram Account: @${post.instagramAccount?.username || 'UNKNOWN'}`);
 
     // Set the scheduled time to now
     post.scheduledAt = new Date();

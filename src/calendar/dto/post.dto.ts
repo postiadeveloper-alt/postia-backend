@@ -20,6 +20,11 @@ export class CreatePostDto {
   @IsEnum(PostType)
   type: PostType;
 
+  @ApiProperty({ enum: PostStatus, example: PostStatus.DRAFT, required: false })
+  @IsOptional()
+  @IsEnum(PostStatus)
+  status?: PostStatus;
+
   @ApiProperty({ example: ['https://example.com/image.jpg'], required: false })
   @IsOptional()
   @IsArray()

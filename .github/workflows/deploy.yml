@@ -52,22 +52,13 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+          # Replace IMAGE_URL in the service yaml with the built image
+          sed -i "s|IMAGE_URL|${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}|g" cloudrun-service.yaml
+          
+          # Deploy using the service yaml
+          gcloud run services replace cloudrun-service.yaml \
             --region=${{ env.REGION }} \
             --platform=managed \
-            --allow-unauthenticated \
-            --port=8080 \
-            --memory=2Gi \
-            --cpu=2 \
-            --min-instances=0 \
-            --max-instances=10 \
-            --timeout=3600 \
-            --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=*,DB_SSL=true" \
-            --set-secrets="DATABASE_URL=postia-db-secret:latest,JWT_SECRET=postia-jwt-secret:latest,INSTAGRAM_APP_ID=postia-instagram-app-id:latest,INSTAGRAM_APP_SECRET=postia-instagram-app-secret:latest" \
-            --no-cpu-throttling \
-            --cpu-boost \
             --quiet
 
       - name: Show service URL

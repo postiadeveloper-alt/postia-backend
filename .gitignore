@@ -59,3 +59,5 @@ Thumbs.db
 # Uploads (if storing locally)
 /uploads
 /public/uploads
+
+secret.json

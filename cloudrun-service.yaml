@@ -56,13 +56,13 @@ spec:
             - name: INSTAGRAM_APP_ID
               valueFrom:
                 secretKeyRef:
-                  name: postia-instagram-secret
-                  key: app-id
+                  name: postia-instagram-app-id
+                  key: latest
             - name: INSTAGRAM_APP_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: postia-instagram-secret
-                  key: app-secret
+                  name: postia-instagram-app-secret
+                  key: latest
             - name: INSTAGRAM_REDIRECT_URI
               value: 'https://postia-backend-655697694470.us-central1.run.app/api/instagram/callback'
             

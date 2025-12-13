@@ -50,22 +50,19 @@ jobs:
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
 
+      - name: Enable Cloud Resource Manager API
+        run: gcloud services enable cloudresourcemanager.googleapis.com
+
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+          # Replace IMAGE_URL in the service yaml with the built image
+          sed -i "s|IMAGE_URL|${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}|g" cloudrun-service.yaml
+          sed -i "s|PROJECT_ID_TOKEN|${{ env.PROJECT_ID }}|g" cloudrun-service.yaml
+          
+          # Deploy using the service yaml
+          gcloud run services replace cloudrun-service.yaml \
             --region=${{ env.REGION }} \
             --platform=managed \
-            --allow-unauthenticated \
-            --port=3000 \
-            --memory=2Gi \
-            --cpu=2 \
-            --timeout=300 \
-            --min-instances=0 \
-            --max-instances=10 \
-            --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=https://postia-front.vercel.app,DB_SSL=true,INSTAGRAM_REDIRECT_URI=https://postia-backend-655697694470.us-central1.run.app/api/instagram/callback" \
-            --set-secrets="DATABASE_URL=postia-db-secret:connection-url,JWT_SECRET=postia-jwt-secret:secret,INSTAGRAM_APP_ID=postia-instagram-secret:app-id,INSTAGRAM_APP_SECRET=postia-instagram-secret:app-secret" \
             --quiet
 
       - name: Show service URL

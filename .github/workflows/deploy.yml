@@ -60,7 +60,7 @@ jobs:
             --port=3000 \
             --memory=2Gi \
             --cpu=2 \
-            --time=300 \
+            --timeout=300 \
             --min-instances=0 \
             --max-instances=10 \
             --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \

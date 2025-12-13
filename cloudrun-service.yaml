@@ -17,7 +17,7 @@ spec:
       serviceAccountName: postia-backend-sa
       containers:
         - name: postia-backend
-          image: IMAGE_URL
+          image: us-central1-docker.pkg.dev/postia-480418/postia-repo/postia-backend:48e04c97309ecdd7a2bd5e1734043e0e8bbeb616
           ports:
             - name: http1
               containerPort: 3000
@@ -63,11 +63,11 @@ spec:
                   name: postia-instagram-secret
                   key: app-secret
             - name: INSTAGRAM_REDIRECT_URI
-              value: 'https://YOUR_CLOUD_RUN_URL/api/instagram/callback'
+              value: 'https://postia-backend-655697694470.us-central1.run.app/api/instagram/callback'
             
             # CORS Configuration
             - name: CORS_ORIGIN
-              value: 'https://your-frontend-domain.vercel.app'
+              value: 'https://postia-front.vercel.app'
             
             # Logging
             - name: LOG_LEVEL

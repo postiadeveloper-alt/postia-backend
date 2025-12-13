@@ -54,6 +54,7 @@ jobs:
         run: |
           # Replace IMAGE_URL in the service yaml with the built image
           sed -i "s|IMAGE_URL|${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}|g" cloudrun-service.yaml
+          sed -i "s|PROJECT_ID_TOKEN|${{ env.PROJECT_ID }}|g" cloudrun-service.yaml
           
           # Deploy using the service yaml
           gcloud run services replace cloudrun-service.yaml \

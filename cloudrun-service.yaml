@@ -47,9 +47,8 @@ spec:
             
             # GCP Configuration
             - name: GCP_PROJECT_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
+            - name: GCP_PROJECT_ID
+              value: 'PROJECT_ID_TOKEN'
             - name: GCS_BUCKET_NAME
               value: 'postia-media-bucket'
             

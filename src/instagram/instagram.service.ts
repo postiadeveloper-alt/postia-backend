@@ -87,8 +87,8 @@ export class InstagramService {
     }
 
     async getAuthUrl(userId: string): Promise<string> {
-        const appId = this.configService.get<string>('INSTAGRAM_APP_ID');
-        const redirectUri = this.configService.get<string>('INSTAGRAM_REDIRECT_URI');
+        const appId = this.configService.get<string>('INSTAGRAM_APP_ID')?.trim();
+        const redirectUri = this.configService.get<string>('INSTAGRAM_REDIRECT_URI')?.trim();
 
         if (!appId || !redirectUri) {
             throw new BadRequestException('Instagram App not configured. Please set INSTAGRAM_APP_ID and INSTAGRAM_REDIRECT_URI in .env file.');
@@ -117,9 +117,9 @@ export class InstagramService {
     }
 
     async exchangeCodeForToken(code: string): Promise<string> {
-        const appId = this.configService.get<string>('INSTAGRAM_APP_ID');
-        const appSecret = this.configService.get<string>('INSTAGRAM_APP_SECRET');
-        const redirectUri = this.configService.get<string>('INSTAGRAM_REDIRECT_URI');
+        const appId = this.configService.get<string>('INSTAGRAM_APP_ID')?.trim();
+        const appSecret = this.configService.get<string>('INSTAGRAM_APP_SECRET')?.trim();
+        const redirectUri = this.configService.get<string>('INSTAGRAM_REDIRECT_URI')?.trim();
 
         console.log('🔄 Exchanging code for access token...');
 

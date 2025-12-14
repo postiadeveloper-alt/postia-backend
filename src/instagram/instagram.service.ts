@@ -310,24 +310,54 @@ export class InstagramService {
     async createMediaContainer(
         accessToken: string,
         igUserId: string,
-        imageUrl: string,
-        caption: string,
+        mediaData: {
+            imageUrl?: string;
+            videoUrl?: string;
+            caption?: string;
+            mediaType?: 'IMAGE' | 'VIDEO' | 'REELS' | 'STORIES' | 'CAROUSEL_ITEM';
+            isCarouselItem?: boolean;
+            coverUrl?: string;
+        },
     ): Promise<string> {
         console.log('📸 Creating media container for IG user:', igUserId);
-        console.log('🖼️ Image URL:', imageUrl);
+        console.log('📝 Type:', mediaData.mediaType);
+
+        const params: any = {
+            access_token: accessToken,
+        };
+
+        if (mediaData.caption && mediaData.mediaType !== 'STORIES') {
+            params.caption = mediaData.caption;
+        }
+
+        if (mediaData.isCarouselItem) {
+            params.is_carousel_item = true;
+        }
+
+        if (mediaData.mediaType === 'VIDEO' || mediaData.mediaType === 'REELS') {
+            params.media_type = 'REELS'; // Graph API uses REELS for both now usually, or VIDEO
+            if (mediaData.videoUrl) params.video_url = mediaData.videoUrl;
+            if (mediaData.coverUrl) params.cover_url = mediaData.coverUrl;
+        } else if (mediaData.mediaType === 'STORIES') {
+            params.media_type = 'STORIES';
+            if (mediaData.videoUrl) params.video_url = mediaData.videoUrl;
+            if (mediaData.imageUrl) params.image_url = mediaData.imageUrl;
+        } else {
+            // IMAGE or CAROUSEL_ITEM (image)
+            if (mediaData.imageUrl) params.image_url = mediaData.imageUrl;
+            if (mediaData.videoUrl) {
+                // Carousel item can be video
+                params.media_type = 'VIDEO';
+                params.video_url = mediaData.videoUrl;
+            }
+        }
 
         try {
             const { data } = await firstValueFrom(
                 this.httpService.post(
                     `https://graph.facebook.com/v21.0/${igUserId}/media`,
                     null,
-                    {
-                        params: {
-                            image_url: imageUrl,
-                            caption: caption,
-                            access_token: accessToken,
-                        },
-                    },
+                    { params },
                 ),
             );
 
@@ -342,12 +372,92 @@ export class InstagramService {
         }
     }
 
+    async createCarouselContainer(
+        accessToken: string,
+        igUserId: string,
+        childrenIds: string[],
+        caption: string,
+    ): Promise<string> {
+        console.log('🎡 Creating carousel container with children:', childrenIds);
+
+        try {
+            const { data } = await firstValueFrom(
+                this.httpService.post(
+                    `https://graph.facebook.com/v21.0/${igUserId}/media`,
+                    null,
+                    {
+                        params: {
+                            access_token: accessToken,
+                            media_type: 'CAROUSEL',
+                            children: childrenIds.join(','),
+                            caption: caption,
+                        },
+                    },
+                ),
+            );
+
+            console.log('✅ Carousel container created:', data.id);
+            return data.id;
+        } catch (error) {
+            console.error('❌ Create carousel error:', error.response?.data || error.message);
+            throw new BadRequestException(
+                'Failed to create carousel container: ' +
+                (error.response?.data?.error?.message || error.message),
+            );
+        }
+    }
+
+    async waitForMediaContainer(
+        accessToken: string,
+        containerId: string,
+    ): Promise<void> {
+        console.log('⏳ Waiting for media container to be ready:', containerId);
+        const maxRetries = 20; // 20 * 3s = 60s max wait
+        const delay = 3000;
+
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const { data } = await firstValueFrom(
+                    this.httpService.get(
+                        `https://graph.facebook.com/v21.0/${containerId}`,
+                        {
+                            params: {
+                                fields: 'status_code,status',
+                                access_token: accessToken,
+                            },
+                        },
+                    ),
+                );
+
+                console.log(`🔄 Check ${i + 1}/${maxRetries}: Status ${data.status_code} (${data.status})`);
+
+                if (data.status_code === 'FINISHED') {
+                    console.log('✅ Media container is ready!');
+                    return;
+                }
+
+                if (data.status_code === 'ERROR') {
+                    throw new Error(`Media container failed with status: ${data.status}`);
+                }
+            } catch (error) {
+                console.warn(`⚠️ Error checking status: ${error.message}`);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        throw new Error('Media container timed out processing.');
+    }
+
     async publishMediaContainer(
         accessToken: string,
         igUserId: string,
         containerId: string,
     ): Promise<string> {
         console.log('📤 Publishing container:', containerId);
+
+        // Wait for container to be ready before publishing
+        await this.waitForMediaContainer(accessToken, containerId);
 
         try {
             const { data } = await firstValueFrom(

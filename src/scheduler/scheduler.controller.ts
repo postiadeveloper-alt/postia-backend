@@ -1,15 +1,35 @@
-import { Controller, Post, Get, HttpCode, BadRequestException, Logger } from '@nestjs/common';
+import { Controller, Post, Get, HttpCode, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { CalendarService } from '../calendar/calendar.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 @ApiTags('scheduler')
 @Controller('scheduler')
-export class SchedulerController {
+export class SchedulerController implements OnModuleInit {
   private readonly logger = new Logger(SchedulerController.name);
   private lastRun: Date = null;
   private runCount: number = 0;
 
-  constructor(private readonly calendarService: CalendarService) {}
+  constructor(private readonly calendarService: CalendarService) { }
+
+  onModuleInit() {
+    // In development, simulate Cloud Scheduler by running every minute
+    // This allows testing scheduled posts without deploying or setting up external triggers
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('🔧 Development mode detected: Starting local scheduler simulation (every 60s)');
+
+      // Run immediately on startup
+      this.checkScheduledPosts().catch(err =>
+        this.logger.error('Initial scheduler check failed', err)
+      );
+
+      // Then run every minute
+      setInterval(() => {
+        this.checkScheduledPosts().catch(err =>
+          this.logger.error('Local scheduler interval failed', err)
+        );
+      }, 60000);
+    }
+  }
 
   /**
    * Check and publish scheduled posts
@@ -45,7 +65,7 @@ export class SchedulerController {
       const now = new Date();
       this.runCount++;
       this.lastRun = now;
-      
+
       this.logger.log(`⏰ Scheduler triggered at: ${now.toISOString()} (Run #${this.runCount})`);
 
       const result = await this.calendarService.checkScheduledPosts();
@@ -79,7 +99,7 @@ export class SchedulerController {
       lastRun: this.lastRun,
       runCount: this.runCount,
       currentTime: new Date().toISOString(),
-      message: this.lastRun 
+      message: this.lastRun
         ? `Last run was ${Math.round((Date.now() - this.lastRun.getTime()) / 1000)} seconds ago`
         : 'Scheduler has not run yet since server start',
     };

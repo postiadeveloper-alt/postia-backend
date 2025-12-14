@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { Post, PostStatus } from './entities/post.entity';
+import { Post, PostStatus, PostType } from './entities/post.entity';
 import { CreatePostDto, UpdatePostDto } from './dto/post.dto';
 import { InstagramService } from '../instagram/instagram.service';
 
@@ -185,27 +185,81 @@ export class CalendarService {
         throw new Error('Post has no media to publish');
       }
 
-      // Get the first media URL (Instagram single post requirement)
-      const imageUrl = post.mediaUrls[0];
+      const caption = `${post.content || ''}\n\n${post.hashtags || ''}`.trim();
+      let containerId: string;
 
-      // Prepare caption with content and hashtags
-      const caption = `${post.content}\n\n${post.hashtags || ''}`.trim();
-
-      console.log('📸 Publishing to Instagram...');
+      console.log(`📸 Publishing ${post.type} to Instagram...`);
       console.log('Account:', post.instagramAccount.username);
-      console.log('Image URL:', imageUrl);
 
-      // Step 1: Create media container
-      const containerId = await this.instagramService.createMediaContainer(
-        post.instagramAccount.accessToken,
-        post.instagramAccount.instagramUserId,
-        imageUrl,
-        caption,
-      );
+      if (post.type === PostType.CAROUSEL) {
+        const childrenIds: string[] = [];
 
-      // Step 2: Wait for Instagram to process the media (required by Instagram API)
-      console.log('⏳ Waiting 5 seconds for Instagram to process the media...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
+        for (const url of post.mediaUrls) {
+          const isVideo = url.toLowerCase().match(/\.(mp4|mov|avi|wmv)$/);
+
+          const childId = await this.instagramService.createMediaContainer(
+            post.instagramAccount.accessToken,
+            post.instagramAccount.instagramUserId,
+            {
+              imageUrl: isVideo ? undefined : url,
+              videoUrl: isVideo ? url : undefined,
+              mediaType: isVideo ? 'VIDEO' : 'IMAGE',
+              isCarouselItem: true,
+            }
+          );
+          childrenIds.push(childId);
+        }
+
+        containerId = await this.instagramService.createCarouselContainer(
+          post.instagramAccount.accessToken,
+          post.instagramAccount.instagramUserId,
+          childrenIds,
+          caption
+        );
+
+      } else if (post.type === PostType.STORY) {
+        const url = post.mediaUrls[0];
+        const isVideo = url.toLowerCase().match(/\.(mp4|mov|avi|wmv)$/);
+
+        containerId = await this.instagramService.createMediaContainer(
+          post.instagramAccount.accessToken,
+          post.instagramAccount.instagramUserId,
+          {
+            imageUrl: isVideo ? undefined : url,
+            videoUrl: isVideo ? url : undefined,
+            mediaType: 'STORIES'
+          }
+        );
+
+      } else if (post.type === PostType.REEL || post.type === PostType.VIDEO) {
+        const url = post.mediaUrls[0];
+        containerId = await this.instagramService.createMediaContainer(
+          post.instagramAccount.accessToken,
+          post.instagramAccount.instagramUserId,
+          {
+            videoUrl: url,
+            caption: caption,
+            mediaType: 'REELS'
+          }
+        );
+
+      } else {
+        // IMAGE (Default)
+        const url = post.mediaUrls[0];
+        containerId = await this.instagramService.createMediaContainer(
+          post.instagramAccount.accessToken,
+          post.instagramAccount.instagramUserId,
+          {
+            imageUrl: url,
+            caption: caption,
+            mediaType: 'IMAGE'
+          }
+        );
+      }
+
+      // Step 2: Wait for Instagram to process the media
+      console.log('⏳ Waiting 10 seconds for Instagram to process the media...');
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Increased wait time for videos/carousels
 
       // Step 3: Publish the container
       const instagramPostId = await this.instagramService.publishMediaContainer(

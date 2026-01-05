@@ -17,7 +17,7 @@ async function bootstrap() {
   console.log('  GCP_PROJECT_ID:', process.env.GCP_PROJECT_ID);
   console.log('  GCS_BUCKET_NAME:', process.env.GCS_BUCKET_NAME);
   console.log('='.repeat(50));
-  
+
   console.log('Creating NestJS application...');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
@@ -30,16 +30,18 @@ async function bootstrap() {
   });
 
   // Global prefix
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: ['auth/callback'],
+  });
 
   // CORS
   app.enableCors({
     origin: (origin, callback) => {
       const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || ['http://localhost:19006'];
-      
+
       // Allow requests with no origin (like mobile apps or Postman)
       if (!origin) return callback(null, true);
-      
+
       // Check if origin matches any allowed pattern
       const isAllowed = allowedOrigins.some(pattern => {
         if (pattern.includes('*')) {
@@ -48,7 +50,7 @@ async function bootstrap() {
         }
         return pattern === origin;
       });
-      
+
       if (isAllowed) {
         callback(null, true);
       } else {

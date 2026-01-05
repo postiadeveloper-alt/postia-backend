@@ -64,11 +64,11 @@ spec:
                   name: postia-instagram-app-secret
                   key: latest
             - name: INSTAGRAM_REDIRECT_URI
-              value: 'https://postia-backend-655697694470.us-central1.run.app/api/instagram/callback'
+              value: 'https://post-ia.com/auth/callback'
             
             # CORS Configuration
             - name: CORS_ORIGIN
-              value: 'https://postia-front.vercel.app'
+              value: 'https://post-ia.com'
             
             # Logging
             - name: LOG_LEVEL

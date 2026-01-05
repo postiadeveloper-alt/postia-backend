@@ -97,12 +97,14 @@ export class InstagramService {
         console.log('🔗 Generating Instagram OAuth URL for user:', userId);
 
         // Facebook OAuth URL for Instagram permissions
-        const authUrl = 'https://www.facebook.com/v21.0/dialog/oauth';
+        const authUrl = 'https://www.facebook.com/v18.0/dialog/oauth';
         const scope = [
             'instagram_basic',
             'instagram_content_publish',
+            'instagram_manage_insights',
             'pages_show_list',
             'pages_read_engagement',
+            'business_management'
         ].join(',');
 
         const params = new URLSearchParams({
@@ -111,6 +113,7 @@ export class InstagramService {
             scope: scope,
             response_type: 'code',
             state: userId, // Pass userId in state to link account after OAuth
+            auth_type: 'rerequest',
         });
 
         return `${authUrl}?${params.toString()}`;
@@ -125,7 +128,7 @@ export class InstagramService {
 
         try {
             const { data } = await firstValueFrom(
-                this.httpService.get('https://graph.facebook.com/v21.0/oauth/access_token', {
+                this.httpService.get('https://graph.facebook.com/v18.0/oauth/access_token', {
                     params: {
                         client_id: appId,
                         client_secret: appSecret,
@@ -143,23 +146,243 @@ export class InstagramService {
         }
     }
 
-    async connectAccount(userId: string, accessToken: string): Promise<InstagramAccount> {
-        try {
-            console.log('🔗 Connecting Instagram account for user:', userId);
+    async findAllPages(accessToken: string): Promise<any[]> {
+        let allPages = [];
+        console.log('\n=== SEARCHING FOR PAGES ===');
 
-            // Step 1: Get user's Facebook Pages
-            const { data: pagesData } = await firstValueFrom(
-                this.httpService.get('https://graph.facebook.com/v21.0/me/accounts', {
+        // Method 1: Standard me/accounts
+        try {
+            const { data } = await firstValueFrom(
+                this.httpService.get('https://graph.facebook.com/v18.0/me/accounts', {
                     params: {
                         access_token: accessToken,
                         fields: 'id,name,access_token,instagram_business_account',
                     },
                 }),
             );
+            if (data.data && data.data.length > 0) {
+                console.log(`  Found ${data.data.length} pages via me/accounts`);
+                allPages.push(...data.data);
+            }
+        } catch (e) {
+            console.log('  me/accounts error:', e.response?.data?.error?.message || e.message);
+        }
 
-            console.log('📄 Facebook Pages found:', pagesData.data?.length || 0);
+        // Method 2: Get businesses, then get pages from each business
+        try {
+            const { data: businessesResponse } = await firstValueFrom(
+                this.httpService.get('https://graph.facebook.com/v18.0/me/businesses', {
+                    params: {
+                        access_token: accessToken,
+                        fields: 'id,name',
+                    },
+                }),
+            );
 
-            if (!pagesData.data || pagesData.data.length === 0) {
+            if (businessesResponse.data && businessesResponse.data.length > 0) {
+                console.log(`  Found ${businessesResponse.data.length} businesses`);
+
+                for (const business of businessesResponse.data) {
+                    // Owned pages
+                    try {
+                        const { data: ownedPages } = await firstValueFrom(
+                            this.httpService.get(`https://graph.facebook.com/v18.0/${business.id}/owned_pages`, {
+                                params: {
+                                    access_token: accessToken,
+                                    fields: 'id,name,access_token,instagram_business_account',
+                                },
+                            }),
+                        );
+                        if (ownedPages.data) {
+                            for (const page of ownedPages.data) {
+                                if (!allPages.find(p => p.id === page.id)) allPages.push(page);
+                            }
+                        }
+                    } catch (e) { }
+
+                    // Client pages
+                    try {
+                        const { data: clientPages } = await firstValueFrom(
+                            this.httpService.get(`https://graph.facebook.com/v18.0/${business.id}/client_pages`, {
+                                params: {
+                                    access_token: accessToken,
+                                    fields: 'id,name,access_token,instagram_business_account',
+                                },
+                            }),
+                        );
+                        if (clientPages.data) {
+                            for (const page of clientPages.data) {
+                                if (!allPages.find(p => p.id === page.id)) allPages.push(page);
+                            }
+                        }
+                    } catch (e) { }
+                }
+            }
+        } catch (e) { }
+
+        return allPages;
+    }
+
+    renderCallbackPage(result: { success: boolean; account?: any; error?: string; errorType?: string }) {
+        if (result.success) {
+            return `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Instagram Connected - Postia</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                padding: 20px;
+              }
+              .container {
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(238, 62, 201, 0.2);
+                border-radius: 20px;
+                padding: 40px;
+                text-align: center;
+                max-width: 500px;
+                box-shadow: 0 8px 32px rgba(238, 62, 201, 0.2);
+              }
+              .icon {
+                font-size: 64px;
+                margin-bottom: 20px;
+                animation: bounce 0.6s ease-in-out;
+              }
+              @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+              }
+              h1 { color: #ffffff; font-size: 28px; margin: 0 0 15px 0; }
+              .account-info {
+                background: rgba(0, 255, 255, 0.1);
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                border-radius: 12px;
+                padding: 20px;
+                margin: 20px 0;
+              }
+              .username { color: #00ffff; font-size: 22px; font-weight: bold; margin: 10px 0; }
+              .stats { color: #a0a0b0; font-size: 14px; margin-top: 10px; }
+              p { color: #a0a0b0; font-size: 16px; line-height: 1.6; }
+              .spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 3px solid rgba(238, 62, 201, 0.3);
+                border-radius: 50%;
+                border-top-color: #ee3ec9;
+                animation: spin 1s ease-in-out infinite;
+              }
+              @keyframes spin { to { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="icon">✓</div>
+              <h1>Instagram Connected!</h1>
+              <div class="account-info">
+                <div class="username">@${result.account.username}</div>
+                <div class="stats">${result.account.followers?.toLocaleString() || 0} followers</div>
+              </div>
+              <p>Your Instagram account has been successfully connected to Postia.</p>
+              <p><span class="spinner"></span> Redirecting you back to the app...</p>
+            </div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ 
+                  type: 'instagram-connected', 
+                  success: true,
+                  account: ${JSON.stringify(result.account)}
+                }, '*');
+                setTimeout(() => window.close(), 2000);
+              } else {
+                setTimeout(() => { window.location.href = '/'; }, 3000);
+              }
+            </script>
+          </body>
+        </html>
+      `;
+        } else {
+            return `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Connection Error - Postia</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                padding: 20px;
+              }
+              .container {
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(239, 68, 68, 0.3);
+                border-radius: 20px;
+                padding: 40px;
+                text-align: center;
+                max-width: 500px;
+                box-shadow: 0 8px 32px rgba(239, 68, 68, 0.2);
+              }
+              .icon { font-size: 64px; margin-bottom: 20px; }
+              h1 { color: #ffffff; font-size: 28px; margin: 0 0 15px 0; }
+              .error-box {
+                background: rgba(239, 68, 68, 0.1);
+                border: 1px solid rgba(239, 68, 68, 0.3);
+                border-radius: 12px;
+                padding: 20px;
+                margin: 20px 0;
+              }
+              .error-message { color: #fca5a5; font-size: 16px; line-height: 1.6; }
+              p { color: #a0a0b0; font-size: 16px; line-height: 1.6; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="icon">⚠️</div>
+              <h1>Connection Failed</h1>
+              <div class="error-box">
+                <div class="error-message">${result.error}</div>
+              </div>
+              <p>Please close this window and try again.</p>
+            </div>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ 
+                  type: 'instagram-error',
+                  error: '${result.error}',
+                  errorType: '${result.errorType}'
+                }, '*');
+                setTimeout(() => window.close(), 5000);
+              }
+            </script>
+          </body>
+        </html>
+      `;
+        }
+    }
+
+    async connectAccount(userId: string, accessToken: string): Promise<InstagramAccount> {
+        try {
+            console.log('🔗 Connecting Instagram account for user:', userId);
+
+            // Use the comprehensive page finder
+            const foundPages = await this.findAllPages(accessToken);
+            console.log('📄 Total pages found:', foundPages.length);
+
+            if (foundPages.length === 0) {
                 throw new BadRequestException(
                     'No Facebook Page found. To connect Instagram, you need:\n' +
                     '1. A Facebook Page\n' +
@@ -172,7 +395,7 @@ export class InstagramService {
             let selectedPage = null;
             let igAccountId = null;
 
-            for (const page of pagesData.data) {
+            for (const page of foundPages) {
                 if (page.instagram_business_account) {
                     selectedPage = page;
                     igAccountId = page.instagram_business_account.id;
@@ -180,16 +403,16 @@ export class InstagramService {
                 }
             }
 
-            // If no direct IG account found, try fetching it for each page
+            // If no direct IG account found, try fetching it for each page (fallback)
             if (!selectedPage) {
-                console.log('⚠️ No Instagram account found directly, checking each page...');
-                for (const page of pagesData.data) {
+                console.log('⚠️ No Instagram account found directly, checking each page fallback...');
+                for (const page of foundPages) {
                     try {
                         const { data: igData } = await firstValueFrom(
-                            this.httpService.get(`https://graph.facebook.com/v21.0/${page.id}`, {
+                            this.httpService.get(`https://graph.facebook.com/v18.0/${page.id}`, {
                                 params: {
                                     fields: 'instagram_business_account',
-                                    access_token: page.access_token,
+                                    access_token: page.access_token || accessToken,
                                 },
                             }),
                         );
@@ -199,9 +422,7 @@ export class InstagramService {
                             igAccountId = igData.instagram_business_account.id;
                             break;
                         }
-                    } catch (err) {
-                        console.log(`Page ${page.name} has no Instagram account`);
-                    }
+                    } catch (err) { }
                 }
             }
 
@@ -219,11 +440,12 @@ export class InstagramService {
             console.log('📸 Instagram account ID:', igAccountId);
 
             // Step 2: Get Instagram account details
+            const pageAccessToken = selectedPage.access_token || accessToken;
             const { data: profileData } = await firstValueFrom(
-                this.httpService.get(`https://graph.facebook.com/v21.0/${igAccountId}`, {
+                this.httpService.get(`https://graph.facebook.com/v18.0/${igAccountId}`, {
                     params: {
                         fields: 'id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count',
-                        access_token: selectedPage.access_token,
+                        access_token: pageAccessToken,
                     },
                 }),
             );
@@ -240,7 +462,7 @@ export class InstagramService {
 
             if (existingAccount) {
                 console.log('♻️ Updating existing account');
-                existingAccount.accessToken = selectedPage.access_token;
+                existingAccount.accessToken = pageAccessToken;
                 existingAccount.username = profileData.username;
                 existingAccount.name = profileData.name || profileData.username;
                 existingAccount.profilePictureUrl = profileData.profile_picture_url;
@@ -275,7 +497,7 @@ export class InstagramService {
                 followersCount: profileData.followers_count || 0,
                 followsCount: profileData.follows_count || 0,
                 mediaCount: profileData.media_count || 0,
-                accessToken: selectedPage.access_token,
+                accessToken: pageAccessToken,
                 tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
             });
 
@@ -355,7 +577,7 @@ export class InstagramService {
         try {
             const { data } = await firstValueFrom(
                 this.httpService.post(
-                    `https://graph.facebook.com/v21.0/${igUserId}/media`,
+                    `https://graph.facebook.com/v18.0/${igUserId}/media`,
                     null,
                     { params },
                 ),
@@ -383,7 +605,7 @@ export class InstagramService {
         try {
             const { data } = await firstValueFrom(
                 this.httpService.post(
-                    `https://graph.facebook.com/v21.0/${igUserId}/media`,
+                    `https://graph.facebook.com/v18.0/${igUserId}/media`,
                     null,
                     {
                         params: {
@@ -419,7 +641,7 @@ export class InstagramService {
             try {
                 const { data } = await firstValueFrom(
                     this.httpService.get(
-                        `https://graph.facebook.com/v21.0/${containerId}`,
+                        `https://graph.facebook.com/v18.0/${containerId}`,
                         {
                             params: {
                                 fields: 'status_code,status',
@@ -462,7 +684,7 @@ export class InstagramService {
         try {
             const { data } = await firstValueFrom(
                 this.httpService.post(
-                    `https://graph.facebook.com/v21.0/${igUserId}/media_publish`,
+                    `https://graph.facebook.com/v18.0/${igUserId}/media_publish`,
                     null,
                     {
                         params: {
@@ -479,6 +701,197 @@ export class InstagramService {
             console.error('❌ Publish error:', error.response?.data || error.message);
             throw new BadRequestException(
                 'Failed to publish media: ' +
+                (error.response?.data?.error?.message || error.message),
+            );
+        }
+    }
+
+    /**
+     * Post an Instagram Story
+     * @param accountId - Instagram account ID from database
+     * @param mediaUrl - URL to the image or video (must be publicly accessible)
+     * @returns Story media ID
+     */
+    async postStory(accountId: string, mediaUrl: string): Promise<{ id: string; permalink?: string }> {
+        const account = await this.findOne(accountId);
+
+        console.log('📸 Posting story to @' + account.username);
+
+        try {
+            // Step 1: Create story container
+            const containerId = await this.createMediaContainer(
+                account.accessToken,
+                account.instagramUserId,
+                {
+                    imageUrl: mediaUrl,
+                    mediaType: 'STORIES',
+                }
+            );
+
+            // Step 2: Publish the story
+            const mediaId = await this.publishMediaContainer(
+                account.accessToken,
+                account.instagramUserId,
+                containerId
+            );
+
+            console.log('✅ Story posted successfully:', mediaId);
+
+            return { id: mediaId };
+        } catch (error) {
+            console.error('❌ Story posting failed:', error.message);
+            throw new BadRequestException(
+                'Failed to post story: ' + error.message
+            );
+        }
+    }
+
+    /**
+     * Get Instagram account insights/analytics
+     * @param accountId - Instagram account ID from database
+     * @param metrics - Array of metrics to fetch
+     * @param period - Time period (day, week, days_28, lifetime)
+     * @returns Analytics data
+     */
+    async getInsights(
+        accountId: string,
+        metrics?: string[],
+        period: 'day' | 'week' | 'days_28' | 'lifetime' = 'day'
+    ): Promise<any> {
+        const account = await this.findOne(accountId);
+
+        const defaultMetrics = [
+            'impressions',
+            'reach',
+            'profile_views',
+            'follower_count',
+        ];
+
+        const metricsToFetch = metrics || defaultMetrics;
+
+        console.log(`📊 Fetching insights for @${account.username}:`, metricsToFetch.join(', '));
+
+        try {
+            const { data } = await firstValueFrom(
+                this.httpService.get(
+                    `https://graph.facebook.com/v18.0/${account.instagramUserId}/insights`,
+                    {
+                        params: {
+                            metric: metricsToFetch.join(','),
+                            period: period,
+                            access_token: account.accessToken,
+                        },
+                    },
+                ),
+            );
+
+            console.log('✅ Insights fetched successfully');
+            return data;
+        } catch (error) {
+            console.error('❌ Insights fetch error:', error.response?.data || error.message);
+            throw new BadRequestException(
+                'Failed to fetch insights: ' +
+                (error.response?.data?.error?.message || error.message),
+            );
+        }
+    }
+
+    /**
+     * Get detailed profile analytics including demographics
+     * @param accountId - Instagram account ID from database
+     * @returns Complete profile analytics
+     */
+    async getProfileAnalytics(accountId: string): Promise<any> {
+        const account = await this.findOne(accountId);
+
+        console.log(`📈 Fetching complete analytics for @${account.username}`);
+
+        try {
+            // Get account insights
+            const insightsMetrics = [
+                'impressions',
+                'reach',
+                'profile_views',
+                'follower_count',
+                'email_contacts',
+                'phone_call_clicks',
+                'text_message_clicks',
+                'get_directions_clicks',
+                'website_clicks',
+            ];
+
+            const { data: insightsData } = await firstValueFrom(
+                this.httpService.get(
+                    `https://graph.facebook.com/v18.0/${account.instagramUserId}/insights`,
+                    {
+                        params: {
+                            metric: insightsMetrics.join(','),
+                            period: 'day',
+                            access_token: account.accessToken,
+                        },
+                    },
+                ),
+            );
+
+            // Get profile info
+            const { data: profileData } = await firstValueFrom(
+                this.httpService.get(
+                    `https://graph.facebook.com/v18.0/${account.instagramUserId}`,
+                    {
+                        params: {
+                            fields: 'username,followers_count,follows_count,media_count,profile_picture_url,biography',
+                            access_token: account.accessToken,
+                        },
+                    },
+                ),
+            );
+
+            console.log('✅ Complete analytics fetched');
+
+            return {
+                profile: profileData,
+                insights: insightsData.data,
+                timestamp: new Date().toISOString(),
+            };
+        } catch (error) {
+            console.error('❌ Profile analytics error:', error.response?.data || error.message);
+            throw new BadRequestException(
+                'Failed to fetch profile analytics: ' +
+                (error.response?.data?.error?.message || error.message),
+            );
+        }
+    }
+
+    /**
+     * Get insights for a specific media (post/story)
+     * @param accountId - Instagram account ID from database
+     * @param mediaId - Instagram media ID
+     * @returns Media insights
+     */
+    async getMediaInsights(accountId: string, mediaId: string): Promise<any> {
+        const account = await this.findOne(accountId);
+
+        console.log(`📊 Fetching media insights for media ID: ${mediaId}`);
+
+        try {
+            const { data } = await firstValueFrom(
+                this.httpService.get(
+                    `https://graph.facebook.com/v18.0/${mediaId}/insights`,
+                    {
+                        params: {
+                            metric: 'impressions,reach,engagement,saved,likes,comments,shares',
+                            access_token: account.accessToken,
+                        },
+                    },
+                ),
+            );
+
+            console.log('✅ Media insights fetched');
+            return data;
+        } catch (error) {
+            console.error('❌ Media insights error:', error.response?.data || error.message);
+            throw new BadRequestException(
+                'Failed to fetch media insights: ' +
                 (error.response?.data?.error?.message || error.message),
             );
         }

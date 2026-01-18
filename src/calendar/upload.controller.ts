@@ -6,6 +6,7 @@ import {
   BadRequestException,
   UseGuards,
   Logger,
+  Request,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -76,7 +77,7 @@ export class UploadController {
       },
     }),
   )
-  async uploadMedia(@UploadedFile() file: Express.Multer.File) {
+  async uploadMedia(@UploadedFile() file: Express.Multer.File, @Request() req) {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -94,8 +95,9 @@ export class UploadController {
     }
 
     try {
-      // Upload to Google Cloud Storage
-      const result = await this.gcsService.uploadFile(file, 'posts');
+      // Upload to Google Cloud Storage using user-specific folder
+      const userFolder = `${req.user.id}/posts`;
+      const result = await this.gcsService.uploadFile(file, userFolder);
 
       this.logger.log(`✅ File uploaded to GCS: ${result.publicUrl}`);
 

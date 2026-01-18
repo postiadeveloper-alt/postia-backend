@@ -29,7 +29,7 @@ export class BusinessProfile {
   @Column({ type: 'text', nullable: true })
   brandValues: string;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
   brandColors: string[];
 
   @Column({ nullable: true })

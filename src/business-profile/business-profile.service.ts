@@ -37,6 +37,14 @@ export class BusinessProfileService {
     });
   }
 
+  async findAllByUser(userId: string): Promise<BusinessProfile[]> {
+    return this.businessProfileRepository
+      .createQueryBuilder('profile')
+      .leftJoinAndSelect('profile.instagramAccount', 'account')
+      .where('account.userId = :userId', { userId })
+      .getMany();
+  }
+
   async findOne(id: string): Promise<BusinessProfile> {
     const profile = await this.businessProfileRepository.findOne({
       where: { id },

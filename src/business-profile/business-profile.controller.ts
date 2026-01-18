@@ -27,6 +27,12 @@ export class BusinessProfileController {
     return this.businessProfileService.create(createBusinessProfileDto);
   }
 
+  @Get()
+  @ApiOperation({ summary: 'Get all business profiles for current user' })
+  findAllByUser(@Request() req) {
+    return this.businessProfileService.findAllByUser(req.user.id);
+  }
+
   @Get('account/:accountId')
   @ApiOperation({ summary: 'Get business profile by Instagram account ID' })
   findByAccount(@Param('accountId') accountId: string) {

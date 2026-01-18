@@ -1,0 +1,79 @@
+```
+                    POSTIA DATABASE RELATIONSHIP STRUCTURE
+                    =====================================
+
+┌─────────────────┐
+│      USER       │
+│                 │
+│ • id (PK)       │
+│ • email         │
+│ • password      │
+│ • fullName      │
+│ • role          │
+│ • agencyName    │
+│ • isActive      │
+└─────────┬───────┘
+          │ 1
+          │
+          │ * (OneToMany)
+          ▼
+┌─────────────────┐       1:1         ┌─────────────────┐
+│ INSTAGRAM       │◄─────────────────►│ BUSINESS        │
+│ ACCOUNT         │ (OneToOne)        │ PROFILE         │
+│                 │                   │                 │
+│ • id (PK)       │                   │ • id (PK)       │
+│ • userId (FK)   │                   │ • instagramAcct │
+│ • instagramId   │                   │   Id (FK)       │
+│ • username      │                   │ • brandName     │
+│ • name          │                   │ • description   │
+│ • accessToken   │                   │ • industry      │
+│ • isActive      │                   │ • targetAudience│
+└─────────┬───────┘                   │ • brandValues   │
+          │ 1                         │ • brandColors   │
+          │                           │ • visualStyle   │
+          │ * (OneToMany)             │ • contentThemes │
+          ▼                           │ • postingSchedule│
+┌─────────────────┐                   │ • guidelines    │
+│      POST       │                   └─────────────────┘
+│                 │
+│ • id (PK)       │
+│ • instagramAcct │
+│   Id (FK)       │
+│ • title         │
+│ • content       │
+│ • hashtags      │
+│ • type          │
+│ • status        │
+│ • mediaUrls     │
+│ • scheduledAt   │
+│ • publishedAt   │
+└─────────────────┘
+
+RELATIONSHIP SUMMARY:
+===================
+• 1 User → ∞ Instagram Accounts (One-to-Many)
+• 1 Instagram Account → 1 Business Profile (One-to-One)
+• 1 Instagram Account → ∞ Posts (One-to-Many)
+
+PRACTICAL LIMITS:
+===============
+• Business Profiles per User: UNLIMITED*
+• Instagram Accounts per Business Profile: EXACTLY 1
+• Posts per Instagram Account: UNLIMITED
+
+*Through multiple Instagram accounts
+
+EXAMPLE SCENARIOS:
+=================
+Agency with 10 clients:
+• 1 User (Agency)
+• 10 Instagram Accounts (one per client)  
+• 10 Business Profiles (one per Instagram account)
+• 1000+ Posts (distributed across all accounts)
+
+Freelancer with 3 personal brands:
+• 1 User (Freelancer)
+• 3 Instagram Accounts (one per brand)
+• 3 Business Profiles (one per account)
+• 300+ Posts (across all brands)
+```

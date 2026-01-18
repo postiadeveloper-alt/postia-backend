@@ -11,6 +11,8 @@ import { TrendingModule } from './trending/trending.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { StorageModule } from './storage/storage.module';
+import { ImageProcessingModule } from './image-processing/image-processing.module';
+import { ContentStrategyModule } from './content-strategy/content-strategy.module';
 
 @Module({
   controllers: [AppController],
@@ -28,7 +30,7 @@ import { StorageModule } from './storage/storage.module';
         console.log('  DATABASE_URL preview:', databaseUrl?.substring(0, 50) + '...');
         console.log('  NODE_ENV:', process.env.NODE_ENV);
         console.log('  DB_SSL:', process.env.DB_SSL);
-        
+
         if (!databaseUrl) {
           console.error('❌ DATABASE_URL is not configured!');
           throw new Error('DATABASE_URL environment variable is required');
@@ -39,7 +41,7 @@ import { StorageModule } from './storage/storage.module';
           console.error('❌ DATABASE_URL has invalid format:', databaseUrl.substring(0, 20));
           throw new Error('DATABASE_URL must start with postgres:// or postgresql://');
         }
-        
+
         console.log('✅ Using DATABASE_URL for database connection');
         const config = {
           type: 'postgres' as const,
@@ -67,6 +69,9 @@ import { StorageModule } from './storage/storage.module';
     BusinessProfileModule,
     SchedulerModule,
     StorageModule,
+    ImageProcessingModule,
+    ContentStrategyModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
+

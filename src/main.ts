@@ -1,5 +1,7 @@
 import { NestFactory } from '@nestjs/core';
+// Triggering restart for image processing routes
 import { ValidationPipe } from '@nestjs/common';
+
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';

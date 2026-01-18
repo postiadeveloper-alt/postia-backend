@@ -33,7 +33,7 @@ export class GcsService {
       }
 
       this.logger.log(`🔧 Initializing GCS with project: ${projectId}, bucket: ${bucketName}`);
-      this.storage = new Storage({ 
+      this.storage = new Storage({
         projectId,
         // Use Application Default Credentials on Cloud Run
       });
@@ -56,6 +56,7 @@ export class GcsService {
   async uploadFile(
     file: Express.Multer.File,
     folder: string = 'uploads',
+    useDate: boolean = false,
   ): Promise<UploadResult> {
     try {
       if (!this.bucket) {
@@ -68,7 +69,11 @@ export class GcsService {
 
       const fileExtension = path.extname(file.originalname);
       const fileName = `${uuidv4()}${fileExtension}`;
-      const filePath = `${folder}/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${fileName}`;
+
+      let filePath = `${folder}/${fileName}`;
+      if (useDate) {
+        filePath = `${folder}/${new Date().getFullYear()}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${fileName}`;
+      }
 
       const fileRef = this.bucket.file(filePath);
 
@@ -193,4 +198,22 @@ export class GcsService {
       throw new BadRequestException(`List operation failed: ${error.message}`);
     }
   }
+
+  /**
+   * Download a file from GCS into a buffer
+   * @param filePath - Full path to the file in bucket
+   */
+  async downloadFile(filePath: string): Promise<Buffer> {
+    try {
+      if (!this.bucket) {
+        throw new BadRequestException('GCS is not configured');
+      }
+      const [buffer] = await this.bucket.file(filePath).download();
+      return buffer;
+    } catch (error) {
+      this.logger.error(`Failed to download file ${filePath}: ${error.message}`);
+      throw new BadRequestException(`Download failed: ${error.message}`);
+    }
+  }
 }
+

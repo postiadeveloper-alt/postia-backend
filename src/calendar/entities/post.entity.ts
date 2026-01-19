@@ -63,6 +63,9 @@ export class Post {
   @Column({ nullable: true })
   instagramPostId: string;
 
+  @Column({ nullable: true })
+  cloudTaskId: string;
+
   @Column({ type: 'jsonb', nullable: true })
   insights: any;
 

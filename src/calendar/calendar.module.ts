@@ -6,12 +6,14 @@ import { UploadController } from './upload.controller';
 import { Post } from './entities/post.entity';
 import { InstagramModule } from '../instagram/instagram.module';
 import { StorageModule } from '../storage/storage.module';
+import { CloudTasksModule } from '../cloud-tasks/cloud-tasks.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Post]),
     InstagramModule,
     StorageModule,
+    CloudTasksModule,
   ],
   controllers: [CalendarController, UploadController],
   providers: [CalendarService],

@@ -64,7 +64,7 @@ jobs:
             --min-instances=0 \
             --max-instances=10 \
             --service-account=postia-backend-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=https://post-ia.com,DB_SSL=true,INSTAGRAM_REDIRECT_URI=https://post-ia.com/auth/callback,GOOGLE_MODEL=gemini-2.0-flash" \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=postia-media-bucket,NODE_ENV=production,CORS_ORIGIN=https://post-ia.com,DB_SSL=true,INSTAGRAM_REDIRECT_URI=https://post-ia.com/auth/callback,GOOGLE_MODEL=gemini-2.0-flash,CLOUD_TASKS_LOCATION=${{ env.REGION }},CLOUD_TASKS_QUEUE=post-publishing-queue" \
             --set-secrets="DATABASE_URL=postia-db-secret:latest,JWT_SECRET=postia-jwt-secret:latest,INSTAGRAM_APP_ID=postia-instagram-app-id:latest,INSTAGRAM_APP_SECRET=postia-instagram-app-secret:latest,GOOGLE_API_KEY=postia-google-api-key:latest" \
             --quiet
 
@@ -74,3 +74,17 @@ jobs:
             --platform managed \
             --region=${{ env.REGION }} \
             --format 'value(status.url)'
+
+      - name: Update service with correct URL
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --platform managed \
+            --region=${{ env.REGION }} \
+            --format 'value(status.url)')
+          
+          echo "🔗 Updating Cloud Tasks service URL to: $SERVICE_URL"
+          
+          gcloud run services update ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --update-env-vars="CLOUD_RUN_SERVICE_URL=$SERVICE_URL" \
+            --quiet

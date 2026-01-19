@@ -1,4 +1,4 @@
-import { Controller, Post, Get, HttpCode, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
+import { Controller, Post, Get, HttpCode, BadRequestException, Logger, OnModuleInit, Param } from '@nestjs/common';
 import { CalendarService } from '../calendar/calendar.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
@@ -103,6 +103,61 @@ export class SchedulerController implements OnModuleInit {
         ? `Last run was ${Math.round((Date.now() - this.lastRun.getTime()) / 1000)} seconds ago`
         : 'Scheduler has not run yet since server start',
     };
+  }
+
+  /**
+   * Publish a specific post - called by Google Cloud Tasks
+   * Each scheduled post has its own Cloud Task that triggers this endpoint
+   * at the exact scheduled time
+   */
+  @Post('publish-post/:postId')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Publish a specific scheduled post',
+    description:
+      'This endpoint is triggered by Google Cloud Tasks at the exact scheduled time. ' +
+      'Each post gets its own task scheduled for its publication time.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully published the post',
+    schema: {
+      example: {
+        success: true,
+        postId: 'uuid',
+        message: 'Post published successfully',
+        timestamp: '2025-01-19T19:00:00.000Z',
+      },
+    },
+  })
+  async publishScheduledPost(@Param('postId') postId: string) {
+    const now = new Date();
+    this.logger.log(`📤 Cloud Task triggered: Publishing post ${postId} at ${now.toISOString()}`);
+
+    try {
+      const result = await this.calendarService.publish(postId);
+
+      this.logger.log(`✅ Post ${postId} published successfully via Cloud Tasks`);
+
+      return {
+        success: true,
+        postId,
+        message: 'Post published successfully',
+        instagramPostId: result.instagramPostId,
+        timestamp: now.toISOString(),
+      };
+    } catch (error) {
+      this.logger.error(`❌ Failed to publish post ${postId}: ${error.message}`, error);
+
+      // Return 200 to prevent Cloud Tasks from retrying
+      // The post status is already marked as FAILED in the database
+      return {
+        success: false,
+        postId,
+        message: `Failed to publish: ${error.message}`,
+        timestamp: now.toISOString(),
+      };
+    }
   }
 
   /**

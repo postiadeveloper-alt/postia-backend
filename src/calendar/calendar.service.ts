@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { Post, PostStatus, PostType } from './entities/post.entity';
 import { CreatePostDto, UpdatePostDto } from './dto/post.dto';
 import { InstagramService } from '../instagram/instagram.service';
+import { CloudTasksService } from '../cloud-tasks/cloud-tasks.service';
 
 @Injectable()
 export class CalendarService {
@@ -13,6 +14,7 @@ export class CalendarService {
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
     private readonly instagramService: InstagramService,
+    private readonly cloudTasksService: CloudTasksService,
   ) { }
 
   /**
@@ -101,7 +103,27 @@ export class CalendarService {
     await this.instagramService.findOne(createPostDto.instagramAccountId);
 
     const post = this.postRepository.create(createPostDto);
-    return this.postRepository.save(post);
+    const savedPost = await this.postRepository.save(post);
+
+    // If the post is scheduled, create a Cloud Task for it
+    if (savedPost.status === PostStatus.SCHEDULED && savedPost.scheduledAt) {
+      try {
+        const taskId = await this.cloudTasksService.schedulePostPublication(
+          savedPost.id,
+          new Date(savedPost.scheduledAt),
+        );
+        if (taskId) {
+          savedPost.cloudTaskId = taskId;
+          await this.postRepository.save(savedPost);
+          this.logger.log(`📅 Scheduled Cloud Task for post ${savedPost.id}`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to schedule Cloud Task for post ${savedPost.id}: ${error.message}`);
+        // Don't fail the post creation, just log the error
+      }
+    }
+
+    return savedPost;
   }
 
   async findAll(userId: string): Promise<Post[]> {
@@ -153,6 +175,8 @@ export class CalendarService {
 
   async update(id: string, userId: string, updatePostDto: UpdatePostDto): Promise<Post> {
     const post = await this.findOne(id);
+    const oldScheduledAt = post.scheduledAt;
+    const oldStatus = post.status;
 
     // Verify user owns this Instagram account
     const account = await this.instagramService.findOne(post.instagramAccountId);
@@ -161,7 +185,46 @@ export class CalendarService {
     }
 
     Object.assign(post, updatePostDto);
-    return this.postRepository.save(post);
+    const savedPost = await this.postRepository.save(post);
+
+    // Handle Cloud Task updates
+    try {
+      const newScheduledAt = savedPost.scheduledAt;
+      const newStatus = savedPost.status;
+
+      // If status changed from scheduled to something else, cancel the task
+      if (oldStatus === PostStatus.SCHEDULED && newStatus !== PostStatus.SCHEDULED) {
+        await this.cloudTasksService.cancelScheduledTask(id);
+        savedPost.cloudTaskId = null;
+        await this.postRepository.save(savedPost);
+        this.logger.log(`🗑️ Cancelled Cloud Task for post ${id} (status changed)`);
+      }
+      // If status changed to scheduled, create a new task
+      else if (oldStatus !== PostStatus.SCHEDULED && newStatus === PostStatus.SCHEDULED) {
+        const taskId = await this.cloudTasksService.schedulePostPublication(id, new Date(newScheduledAt));
+        if (taskId) {
+          savedPost.cloudTaskId = taskId;
+          await this.postRepository.save(savedPost);
+          this.logger.log(`📅 Created Cloud Task for post ${id}`);
+        }
+      }
+      // If scheduled time changed, reschedule the task
+      else if (
+        newStatus === PostStatus.SCHEDULED &&
+        new Date(oldScheduledAt).getTime() !== new Date(newScheduledAt).getTime()
+      ) {
+        const taskId = await this.cloudTasksService.reschedulePostPublication(id, new Date(newScheduledAt));
+        if (taskId) {
+          savedPost.cloudTaskId = taskId;
+          await this.postRepository.save(savedPost);
+          this.logger.log(`🔄 Rescheduled Cloud Task for post ${id}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to update Cloud Task for post ${id}: ${error.message}`);
+    }
+
+    return savedPost;
   }
 
   async remove(id: string, userId: string): Promise<void> {
@@ -171,6 +234,16 @@ export class CalendarService {
     const account = await this.instagramService.findOne(post.instagramAccountId);
     if (account.userId !== userId) {
       throw new ForbiddenException('You do not have permission to delete this post');
+    }
+
+    // Cancel any scheduled Cloud Task for this post
+    if (post.status === PostStatus.SCHEDULED) {
+      try {
+        await this.cloudTasksService.cancelScheduledTask(id);
+        this.logger.log(`🗑️ Cancelled Cloud Task for deleted post ${id}`);
+      } catch (error) {
+        this.logger.error(`Failed to cancel Cloud Task for post ${id}: ${error.message}`);
+      }
     }
 
     await this.postRepository.remove(post);

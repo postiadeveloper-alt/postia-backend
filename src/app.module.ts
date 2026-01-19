@@ -13,6 +13,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { StorageModule } from './storage/storage.module';
 import { ImageProcessingModule } from './image-processing/image-processing.module';
 import { ContentStrategyModule } from './content-strategy/content-strategy.module';
+import { CloudTasksModule } from './cloud-tasks/cloud-tasks.module';
 
 @Module({
   controllers: [AppController],
@@ -71,6 +72,7 @@ import { ContentStrategyModule } from './content-strategy/content-strategy.modul
     StorageModule,
     ImageProcessingModule,
     ContentStrategyModule,
+    CloudTasksModule,
   ],
 })
 export class AppModule { }

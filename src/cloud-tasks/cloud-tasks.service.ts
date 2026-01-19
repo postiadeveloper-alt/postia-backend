@@ -56,7 +56,7 @@ export class CloudTasksService {
       const task: protos.google.cloud.tasks.v2.ITask = {
         httpRequest: {
           httpMethod: 'POST',
-          url: `${this.serviceUrl}/scheduler/publish-post/${postId}`,
+          url: `${this.serviceUrl}/api/scheduler/publish-post/${postId}`,
           headers: {
             'Content-Type': 'application/json',
           },

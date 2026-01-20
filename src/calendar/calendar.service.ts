@@ -128,6 +128,11 @@ export class CalendarService {
 
   async findAll(userId: string): Promise<Post[]> {
     const accounts = await this.instagramService.findAllByUser(userId);
+
+    if (!accounts || accounts.length === 0) {
+      return [];
+    }
+
     const accountIds = accounts.map(acc => acc.id);
 
     return this.postRepository.find({
@@ -137,7 +142,13 @@ export class CalendarService {
     });
   }
 
-  async findByAccount(accountId: string): Promise<Post[]> {
+  async findByAccount(accountId: string, userId: string): Promise<Post[]> {
+    // Verify account ownership
+    const account = await this.instagramService.findOne(accountId);
+    if (account.userId !== userId) {
+      throw new ForbiddenException('Access to this account is denied');
+    }
+
     return this.postRepository.find({
       where: { instagramAccountId: accountId },
       relations: ['instagramAccount'],
@@ -147,9 +158,16 @@ export class CalendarService {
 
   async findByDateRange(
     accountId: string,
+    userId: string,
     startDate: Date,
     endDate: Date,
   ): Promise<Post[]> {
+    // Verify account ownership
+    const account = await this.instagramService.findOne(accountId);
+    if (account.userId !== userId) {
+      throw new ForbiddenException('Access to this account is denied');
+    }
+
     return this.postRepository.find({
       where: {
         instagramAccountId: accountId,
@@ -376,7 +394,13 @@ export class CalendarService {
     return this.publish(id);
   }
 
-  async getUpcoming(accountId: string, limit: number = 10): Promise<Post[]> {
+  async getUpcoming(accountId: string, userId: string, limit: number = 10): Promise<Post[]> {
+    // Verify account ownership
+    const account = await this.instagramService.findOne(accountId);
+    if (account.userId !== userId) {
+      throw new ForbiddenException('Access to this account is denied');
+    }
+
     return this.postRepository.find({
       where: {
         instagramAccountId: accountId,

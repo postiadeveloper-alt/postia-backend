@@ -36,8 +36,11 @@ export class CalendarController {
 
   @Get('posts/account/:accountId')
   @ApiOperation({ summary: 'Get all posts for specific Instagram account' })
-  findByAccount(@Param('accountId') accountId: string) {
-    return this.calendarService.findByAccount(accountId);
+  findByAccount(
+    @Param('accountId') accountId: string,
+    @Request() req,
+  ) {
+    return this.calendarService.findByAccount(accountId, req.user.id);
   }
 
   @Get('posts/account/:accountId/range')
@@ -48,9 +51,11 @@ export class CalendarController {
     @Param('accountId') accountId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Request() req,
   ) {
     return this.calendarService.findByDateRange(
       accountId,
+      req.user.id,
       new Date(startDate),
       new Date(endDate),
     );
@@ -61,9 +66,10 @@ export class CalendarController {
   @ApiQuery({ name: 'limit', required: false })
   getUpcoming(
     @Param('accountId') accountId: string,
+    @Request() req,
     @Query('limit') limit?: number,
   ) {
-    return this.calendarService.getUpcoming(accountId, limit);
+    return this.calendarService.getUpcoming(accountId, req.user.id, limit);
   }
 
   @Get('posts/:id')

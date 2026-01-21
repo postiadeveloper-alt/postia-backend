@@ -85,8 +85,9 @@ export class InstagramController {
           id: account.id,
           username: account.username,
           name: account.name,
-          profilePicture: account.profilePictureUrl,
-          followers: account.followersCount
+          profilePictureUrl: account.profilePictureUrl,
+          biography: account.biography,
+          followersCount: account.followersCount
         }
       });
     } catch (error) {

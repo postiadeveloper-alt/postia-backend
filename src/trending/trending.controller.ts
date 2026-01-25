@@ -46,6 +46,30 @@ export class TrendingController {
     return this.trendingService.getContentSuggestions(accountId, limit);
   }
 
+  @Get('keywords/:accountId')
+  @ApiOperation({ summary: 'Get trending keywords, terms, and technologies for the industry' })
+  getTrendingKeywords(@Param('accountId') accountId: string) {
+    return this.trendingService.getTrendingKeywords(accountId);
+  }
+
+  @Get('techniques/:accountId')
+  @ApiOperation({ summary: 'Get trending content techniques and strategies' })
+  getTrendingTechniques(@Param('accountId') accountId: string) {
+    return this.trendingService.getTrendingTechniques(accountId);
+  }
+
+  @Get('technologies/:accountId')
+  @ApiOperation({ summary: 'Get trending tools and technologies for content creation' })
+  getTrendingTechnologies(@Param('accountId') accountId: string) {
+    return this.trendingService.getTrendingTechnologies(accountId);
+  }
+
+  @Get('inspiring-posts/:accountId')
+  @ApiOperation({ summary: 'Get inspiring posts from the industry for inspiration' })
+  getInspiringPosts(@Param('accountId') accountId: string) {
+    return this.trendingService.getInspiringPosts(accountId);
+  }
+
   @Get('competitor/:accountId')
   @ApiOperation({ summary: 'Analyze competitor account' })
   @ApiQuery({ name: 'username', required: true })

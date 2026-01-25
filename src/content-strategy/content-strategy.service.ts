@@ -4,7 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ContentStrategy, ContentFormat, ContentStatus } from './entities/content-strategy.entity';
-import { GenerateContentStrategyDto, UpdateContentStrategyDto } from './dto/content-strategy.dto';
+import { GenerateContentStrategyDto, UpdateContentStrategyDto, FormatDistributionDto } from './dto/content-strategy.dto';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { 
   startOfMonth, 
@@ -17,6 +17,12 @@ import {
   getWeek
 } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { 
+  PromptContext, 
+  ContentFormatType,
+  getSystemPromptByFormat,
+  getUserPromptByFormat 
+} from './prompts/content-prompts';
 
 interface GeneratedContent {
   format: string;
@@ -70,124 +76,131 @@ export class ContentStrategyService {
       throw new NotFoundException('Business profile not found');
     }
 
-    // Parse month/year
-    const [year, month] = dto.monthYear.split('-').map(Number);
-    const monthStart = startOfMonth(new Date(year, month - 1));
-    const monthEnd = endOfMonth(monthStart);
-    
-    // Get all days in the month that match selected days of week
-    const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
-    const targetDays = allDays.filter(day => dto.selectedDays.includes(getDay(day)));
+    // Parse selected dates from strings to Date objects
+    const targetDays = dto.selectedDates.map(dateStr => new Date(dateStr));
 
-    this.logger.log(`Generating content for ${targetDays.length} days in ${dto.monthYear}`);
+    // Build format queue based on distribution
+    const formatQueue = this.buildFormatQueue(dto.formatDistribution);
+    const totalFormats = formatQueue.length;
 
-    // Generate content for each day
+    this.logger.log(`Generating ${totalFormats} total content pieces distributed across ${targetDays.length} dates`);
+
+    // Generate content by distributing formats across dates
     const generatedStrategies: ContentStrategy[] = [];
 
-    for (const day of targetDays) {
+    for (let i = 0; i < formatQueue.length; i++) {
+      const contentFormat = formatQueue[i];
+      // Use modulo to cycle through dates if we have more formats than dates
+      const day = targetDays[i % targetDays.length];
+      
       try {
-        const content = await this.generateContentForDay(businessProfile, day, targetDays.length);
-        
-        const strategy = this.contentStrategyRepository.create({
-          scheduledDate: day,
-          dayOfWeek: getDay(day),
-          format: this.mapFormat(content.format),
-          hook: content.hook,
-          mainContent: content.mainContent,
-          frontPageDescription: content.frontPageDescription,
-          callToAction: content.callToAction,
-          hashtags: content.hashtags,
-          objective: content.objective,
-          targetEmotion: content.targetEmotion,
-          visualNotes: content.visualNotes,
-          contentPillar: content.contentPillar,
-          status: ContentStatus.DRAFT,
-          businessProfileId: dto.businessProfileId,
-          userId: userId,
-          metadata: {
-            generatedAt: new Date(),
-            model: this.modelName,
-            promptVersion: '1.0',
-            monthYear: dto.monthYear,
-            weekNumber: getWeek(day),
-          },
-        });
+        const content = await this.generateContentForDayWithFormat(
+          businessProfile, 
+          day, 
+          totalFormats,
+          contentFormat
+        );
+          
+          const strategy = this.contentStrategyRepository.create({
+            scheduledDate: day,
+            dayOfWeek: getDay(day),
+            format: this.mapFormat(content.format),
+            hook: content.hook,
+            mainContent: content.mainContent,
+            frontPageDescription: content.frontPageDescription,
+            callToAction: content.callToAction,
+            hashtags: content.hashtags,
+            objective: content.objective,
+            targetEmotion: content.targetEmotion,
+            visualNotes: content.visualNotes,
+            contentPillar: content.contentPillar,
+            status: ContentStatus.DRAFT,
+            businessProfileId: dto.businessProfileId,
+            userId: userId,
+            metadata: {
+              generatedAt: new Date(),
+              model: this.modelName,
+              promptVersion: '2.0',
+              monthYear: dto.monthYear,
+              weekNumber: getWeek(day),
+              formatRequested: contentFormat,
+            },
+          });
 
-        const saved = await this.contentStrategyRepository.save(strategy);
-        generatedStrategies.push(saved);
+          const saved = await this.contentStrategyRepository.save(strategy);
+          generatedStrategies.push(saved);
       } catch (error) {
-        this.logger.error(`Failed to generate content for ${format(day, 'yyyy-MM-dd')}: ${error.message}`);
+        this.logger.error(`Failed to generate ${contentFormat} for ${format(day, 'yyyy-MM-dd')}: ${error.message}`);
       }
     }
 
     return generatedStrategies;
   }
 
-  private async generateContentForDay(
+  /**
+   * Build an array of formats to generate based on the distribution.
+   * E.g., { reels: 1, stories: 2, carousels: 1, staticPosts: 0 } => ['reel', 'story', 'story', 'carousel']
+   */
+  private buildFormatQueue(distribution?: FormatDistributionDto): ContentFormatType[] {
+    if (!distribution) {
+      // Default: 1 of each main type if no distribution provided
+      return ['static_post'];
+    }
+
+    const queue: ContentFormatType[] = [];
+    
+    for (let i = 0; i < (distribution.reels || 0); i++) {
+      queue.push('reel');
+    }
+    for (let i = 0; i < (distribution.stories || 0); i++) {
+      queue.push('story');
+    }
+    for (let i = 0; i < (distribution.carousels || 0); i++) {
+      queue.push('carousel');
+    }
+    for (let i = 0; i < (distribution.staticPosts || 0); i++) {
+      queue.push('static_post');
+    }
+
+    // If nothing selected, default to one static post
+    if (queue.length === 0) {
+      queue.push('static_post');
+    }
+
+    return queue;
+  }
+
+  private async generateContentForDayWithFormat(
     businessProfile: any,
     day: Date,
     totalPostsInMonth: number,
+    contentFormat: ContentFormatType,
   ): Promise<GeneratedContent> {
     const dayName = format(day, 'EEEE', { locale: es });
     const dateStr = format(day, "d 'de' MMMM, yyyy", { locale: es });
 
-    const systemPrompt = `Eres un community manager experto y estratega de redes sociales con más de 10 años de experiencia creando contenido viral y atractivo para marcas. Entiendes la psicología, el storytelling y lo que hace que el contenido resuene con las audiencias hispanohablantes.
+    // Build prompt context
+    const ctx: PromptContext = {
+      brandName: businessProfile.brandName,
+      industry: businessProfile.industry || 'No especificado',
+      brandDescription: businessProfile.brandDescription || 'No especificado',
+      targetAudience: businessProfile.targetAudience || 'Audiencia general',
+      brandValues: businessProfile.brandValues || 'No especificado',
+      visualStyle: businessProfile.visualStyle || 'Moderno',
+      communicationTone: businessProfile.communicationTone || 'Profesional',
+      contentThemes: businessProfile.contentThemes?.join(', ') || 'Contenido general',
+      productCategories: businessProfile.productCategories?.join(', ') || 'No especificado',
+      contentGuidelines: businessProfile.contentGuidelines || 'Ninguna especificada',
+      prohibitedTopics: businessProfile.prohibitedTopics?.join(', ') || 'Ninguno',
+      brandColors: businessProfile.brandColors?.join(', ') || 'No especificado',
+      dayName,
+      dateStr,
+      totalPostsInMonth,
+    };
 
-Tu tarea es crear una estrategia de contenido detallada para una publicación de Instagram. Piensa estratégicamente sobre:
-- Variedad de contenido a lo largo del mes
-- Conexión emocional con la audiencia objetivo
-- Consistencia de marca mientras se mantiene fresco y atractivo
-- Mejores prácticas específicas de Instagram
-- La mezcla correcta de contenido educativo, entretenido, inspirador y promocional
-
-IMPORTANTE: 
-- TODO EL CONTENIDO DEBE ESTAR EN ESPAÑOL
-- Devuelve tu respuesta como un objeto JSON válido con la estructura exacta especificada.`;
-
-    const userPrompt = `Crea una estrategia de contenido detallada para Instagram para la siguiente marca:
-
-## INFORMACIÓN DE LA MARCA
-- **Nombre de Marca:** ${businessProfile.brandName}
-- **Industria:** ${businessProfile.industry || 'No especificado'}
-- **Descripción de Marca:** ${businessProfile.brandDescription || 'No especificado'}
-- **Audiencia Objetivo:** ${businessProfile.targetAudience || 'Audiencia general'}
-- **Valores de Marca:** ${businessProfile.brandValues || 'No especificado'}
-- **Estilo Visual:** ${businessProfile.visualStyle || 'Moderno'}
-- **Tono de Comunicación:** ${businessProfile.communicationTone || 'Profesional'}
-- **Temas de Contenido:** ${businessProfile.contentThemes?.join(', ') || 'Contenido general'}
-- **Categorías de Producto/Servicio:** ${businessProfile.productCategories?.join(', ') || 'No especificado'}
-- **Guías de Contenido:** ${businessProfile.contentGuidelines || 'Ninguna especificada'}
-- **Temas Prohibidos:** ${businessProfile.prohibitedTopics?.join(', ') || 'Ninguno'}
-- **Colores de Marca:** ${businessProfile.brandColors?.join(', ') || 'No especificado'}
-
-## DETALLES DE LA PUBLICACIÓN
-- **Día:** ${dayName}
-- **Fecha:** ${dateStr}
-- **Total de publicaciones planificadas este mes:** ${totalPostsInMonth}
-
-## REQUISITOS
-Crea contenido atractivo que:
-1. Se alinee perfectamente con la voz y valores de la marca
-2. Hable directamente a la audiencia objetivo
-3. Use tácticas de engagement probadas (hooks, storytelling, CTAs)
-4. Sea apropiado para el día de la semana
-5. Contribuya a una mezcla variada de contenido a lo largo del mes
-
-Devuelve un objeto JSON con esta estructura exacta:
-{
-  "format": "carousel" | "reel" | "static_post" | "story",
-  "hook": "Una línea de apertura poderosa (máx 150 caracteres) que detenga el scroll y capture la atención inmediata",
-  "mainContent": "El caption/script completo para la publicación (300-500 palabras). Incluir saltos de línea para legibilidad.",
-  "frontPageDescription": "Descripción visual para la imagen de portada/primera slide (qué debe mostrarse)",
-  "callToAction": "CTA claro diciéndole a la audiencia exactamente qué hacer a continuación",
-  "hashtags": ["array", "de", "hashtags", "relevantes", "máximo", "15"],
-  "objective": "Qué busca lograr esta publicación (awareness, engagement, conversión, etc.)",
-  "targetEmotion": "Emoción principal a evocar (inspiración, curiosidad, FOMO, confianza, etc.)",
-  "visualNotes": "Notas detalladas para crear el contenido visual (colores, estilo, elementos a incluir)",
-  "contentPillar": "educational" | "entertaining" | "inspiring" | "promotional"
-}
-
-IMPORTANTE: Devuelve SOLO el objeto JSON, sin bloques de código markdown ni texto adicional. TODO EN ESPAÑOL.`;
+    // Get format-specific prompts
+    const systemPrompt = getSystemPromptByFormat(contentFormat);
+    const userPrompt = getUserPromptByFormat(contentFormat, ctx);
 
     try {
       const model = this.genAI.getGenerativeModel({ 
@@ -196,7 +209,7 @@ IMPORTANTE: Devuelve SOLO el objeto JSON, sin bloques de código markdown ni tex
 
       const generationConfig = {
         temperature: 0.8,
-        maxOutputTokens: 2000,
+        maxOutputTokens: 2500,
       };
 
       const prompt = `${systemPrompt}\n\n${userPrompt}`;
@@ -215,9 +228,18 @@ IMPORTANTE: Devuelve SOLO el objeto JSON, sin bloques de código markdown ni tex
       const content = JSON.parse(text);
       return content as GeneratedContent;
     } catch (error) {
-      this.logger.error(`Google AI API error: ${error.message}`);
+      this.logger.error(`Google AI API error for ${contentFormat}: ${error.message}`);
       throw error;
     }
+  }
+
+  // Keep the old method for backwards compatibility
+  private async generateContentForDay(
+    businessProfile: any,
+    day: Date,
+    totalPostsInMonth: number,
+  ): Promise<GeneratedContent> {
+    return this.generateContentForDayWithFormat(businessProfile, day, totalPostsInMonth, 'static_post');
   }
 
   private mapFormat(format: string): ContentFormat {

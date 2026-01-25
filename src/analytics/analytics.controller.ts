@@ -16,6 +16,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
+  @Get('account/:accountId/overview')
+  @ApiOperation({ summary: 'Get account analytics overview' })
+  getAccountOverview(@Param('accountId') accountId: string) {
+    return this.analyticsService.getAccountOverview(accountId);
+  }
+
   @Get('account/:accountId')
   @ApiOperation({ summary: 'Get account insights' })
   @ApiQuery({ name: 'period', required: false })

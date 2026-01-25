@@ -84,6 +84,7 @@ export class ContentStrategy {
     promptVersion: string;
     monthYear: string;
     weekNumber: number;
+    formatRequested?: string;
   };
 
   @ManyToOne(() => BusinessProfile, { onDelete: 'CASCADE' })

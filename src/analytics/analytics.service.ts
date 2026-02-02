@@ -55,6 +55,7 @@ export interface AccountOverview {
     engagementRate: number;
   }>;
   insightsAvailable: boolean;
+  insightsError?: string;
 }
 
 @Injectable()
@@ -66,13 +67,13 @@ export class AnalyticsService {
     private readonly instagramService: InstagramService,
     @InjectRepository(Post)
     private readonly postRepository: Repository<Post>,
-  ) {}
+  ) { }
 
   async getAccountOverview(accountId: string): Promise<AccountOverview> {
     const account = await this.instagramService.findOne(accountId);
-    
+
     console.log('📊 [Analytics] Getting overview for account:', account.username, 'IG User ID:', account.instagramUserId);
-    
+
     // Calculate posts this month
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -97,6 +98,7 @@ export class AnalyticsService {
 
     // Try to get Instagram API insights
     let insightsAvailable = false;
+    let insightsError: string | undefined;
     let reach = 0;
     let impressions = 0;
     let profileViews = 0;
@@ -135,7 +137,7 @@ export class AnalyticsService {
               ? ((post.like_count || 0) + (post.comments_count || 0)) / account.followersCount * 100
               : 0,
           }))
-          .sort((a: any, b: any) => 
+          .sort((a: any, b: any) =>
             (b.likeCount + b.commentsCount) - (a.likeCount + a.commentsCount)
           )
           .slice(0, 5);
@@ -145,6 +147,7 @@ export class AnalyticsService {
       }
     } catch (error) {
       console.error('❌ [Analytics] Instagram API error:', error.response?.data || error.message);
+      insightsError = error.response?.data?.error?.message || error.message;
       // Fall back to stored data
     }
 
@@ -185,6 +188,7 @@ export class AnalyticsService {
       },
       topPosts,
       insightsAvailable,
+      insightsError,
     };
   }
 
@@ -343,7 +347,7 @@ export class AnalyticsService {
     const likes = this.getMetricValue(data, 'likes');
     const comments = this.getMetricValue(data, 'comments');
     const saved = this.getMetricValue(data, 'saved');
-    
+
     return likes + comments + saved;
   }
 }

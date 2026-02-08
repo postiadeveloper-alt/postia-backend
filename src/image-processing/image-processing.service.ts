@@ -375,6 +375,131 @@ export class ImageProcessingService {
             throw new BadRequestException(`Image generation failed: ${error.message}`);
         }
     }
+
+    async generateImageWithFormat(
+        userId: string,
+        templatePath: string,
+        contentPath: string,
+        formatSettings: {
+            format: 'story' | 'reel' | 'post' | 'carousel';
+            width: number;
+            height: number;
+            cropX: number;
+            cropY: number;
+            scale: number;
+        }
+    ) {
+        this.logger.log(`Generating image with format for user ${userId}. Format: ${formatSettings.format}, Size: ${formatSettings.width}x${formatSettings.height}`);
+
+        try {
+            // 1. Download images
+            const [templateBuffer, contentBuffer] = await Promise.all([
+                this.gcsService.downloadFile(templatePath),
+                this.gcsService.downloadFile(contentPath),
+            ]);
+
+            // 2. Process images with Jimp
+            const templateImage = await Jimp.read(templateBuffer);
+            const contentImage = await Jimp.read(contentBuffer);
+
+            const targetWidth = formatSettings.width;
+            const targetHeight = formatSettings.height;
+
+            // 3. Create output canvas with transparent background
+            const outputImage = new Jimp(targetWidth, targetHeight, 0x00000000);
+
+            // 4. Calculate content image dimensions after scaling
+            const contentOrigWidth = contentImage.getWidth();
+            const contentOrigHeight = contentImage.getHeight();
+
+            // Scale the content image to cover the target dimensions, then apply user scale
+            const coverRatioW = targetWidth / contentOrigWidth;
+            const coverRatioH = targetHeight / contentOrigHeight;
+            const coverRatio = Math.max(coverRatioW, coverRatioH);
+
+            const scaledWidth = Math.round(contentOrigWidth * coverRatio * formatSettings.scale);
+            const scaledHeight = Math.round(contentOrigHeight * coverRatio * formatSettings.scale);
+
+            // Resize content
+            const contentResized = contentImage.clone().resize(scaledWidth, scaledHeight);
+
+            // 5. Calculate position (center by default, then apply user offset)
+            const centerX = Math.round((targetWidth - scaledWidth) / 2);
+            const centerY = Math.round((targetHeight - scaledHeight) / 2);
+
+            const posX = centerX - formatSettings.cropX;
+            const posY = centerY - formatSettings.cropY;
+
+            // 6. Composite content onto output
+            outputImage.composite(contentResized, posX, posY);
+
+            // 7. Process template: use cover() to properly crop to target dimensions
+            // This ensures the template is cropped (not stretched) to fit the format
+            const templateOrigWidth = templateImage.getWidth();
+            const templateOrigHeight = templateImage.getHeight();
+
+            // Calculate how to crop the template to the target aspect ratio
+            const targetAspect = targetWidth / targetHeight;
+            const templateAspect = templateOrigWidth / templateOrigHeight;
+
+            let templateCropped: Jimp;
+
+            if (Math.abs(targetAspect - templateAspect) < 0.01) {
+                // Aspect ratios are very similar, just resize
+                templateCropped = templateImage.clone().resize(targetWidth, targetHeight);
+            } else if (targetAspect > templateAspect) {
+                // Target is wider than template - crop top/bottom from template
+                const newTemplateHeight = Math.round(templateOrigWidth / targetAspect);
+                const cropY = Math.round((templateOrigHeight - newTemplateHeight) / 2);
+                templateCropped = templateImage.clone()
+                    .crop(0, Math.max(0, cropY), templateOrigWidth, Math.min(newTemplateHeight, templateOrigHeight))
+                    .resize(targetWidth, targetHeight);
+            } else {
+                // Target is taller than template - crop left/right from template
+                const newTemplateWidth = Math.round(templateOrigHeight * targetAspect);
+                const cropX = Math.round((templateOrigWidth - newTemplateWidth) / 2);
+                templateCropped = templateImage.clone()
+                    .crop(Math.max(0, cropX), 0, Math.min(newTemplateWidth, templateOrigWidth), templateOrigHeight)
+                    .resize(targetWidth, targetHeight);
+            }
+
+            // Composite cropped template on top
+            outputImage.composite(templateCropped, 0, 0);
+
+            // 8. Final crop to ensure exact dimensions (safety measure)
+            outputImage.crop(0, 0, targetWidth, targetHeight);
+
+            const outputBuffer = await outputImage.getBufferAsync(Jimp.MIME_PNG);
+
+            // 9. Upload result
+            const fileName = `generated_${formatSettings.format}_${uuidv4()}.png`;
+            const outputFolder = `${userId}/output`;
+
+            const file: Express.Multer.File = {
+                buffer: outputBuffer,
+                originalname: fileName,
+                mimetype: 'image/png',
+                size: outputBuffer.length,
+            } as any;
+
+            const uploadResult = await this.gcsService.uploadFile(file, outputFolder);
+
+            // 10. Save metadata
+            const asset = this.imageAssetRepository.create({
+                userId,
+                type: ImageAssetType.OUTPUT,
+                originalName: fileName,
+                gcsPath: uploadResult.path,
+                publicUrl: uploadResult.publicUrl,
+            });
+
+            return this.imageAssetRepository.save(asset);
+
+        } catch (error) {
+            this.logger.error(`Failed to generate image with format: ${error.message}`, error.stack);
+            throw new BadRequestException(`Image generation failed: ${error.message}`);
+        }
+    }
 }
 
 

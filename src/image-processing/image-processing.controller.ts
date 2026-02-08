@@ -123,4 +123,52 @@ export class ImageProcessingController {
         if (!instagramAccountId) throw new BadRequestException('instagramAccountId is required');
         return this.imageProcessingService.generateAITemplates(req.user.id, instagramAccountId);
     }
+
+    @Post('generate-with-format')
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                templatePath: { type: 'string' },
+                contentPath: { type: 'string' },
+                format: { type: 'string', enum: ['story', 'reel', 'post', 'carousel'] },
+                width: { type: 'number' },
+                height: { type: 'number' },
+                cropX: { type: 'number' },
+                cropY: { type: 'number' },
+                scale: { type: 'number' }
+            }
+        }
+    })
+    @ApiOperation({ summary: 'Generate a combined image with custom format and positioning' })
+    async generateImageWithFormat(
+        @Req() req,
+        @Body() body: {
+            templatePath: string;
+            contentPath: string;
+            format: 'story' | 'reel' | 'post' | 'carousel';
+            width: number;
+            height: number;
+            cropX: number;
+            cropY: number;
+            scale: number;
+        }
+    ) {
+        if (!body.templatePath || !body.contentPath) {
+            throw new BadRequestException('Template path and content path are required');
+        }
+        return this.imageProcessingService.generateImageWithFormat(
+            req.user.id,
+            body.templatePath,
+            body.contentPath,
+            {
+                format: body.format || 'story',
+                width: body.width || 1080,
+                height: body.height || 1920,
+                cropX: body.cropX || 0,
+                cropY: body.cropY || 0,
+                scale: body.scale || 1
+            }
+        );
+    }
 }

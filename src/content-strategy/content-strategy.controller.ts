@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('content-strategy')
 export class ContentStrategyController {
-  constructor(private readonly contentStrategyService: ContentStrategyService) {}
+  constructor(private readonly contentStrategyService: ContentStrategyService) { }
 
   @Post('generate')
   @ApiOperation({ summary: 'Generate AI content strategy for a month' })
@@ -29,6 +29,19 @@ export class ContentStrategyController {
     @Body() dto: GenerateContentStrategyDto,
   ) {
     return this.contentStrategyService.generateMonthlyStrategy(req.user.id, dto);
+  }
+
+  @Post('generate-caption')
+  @ApiOperation({ summary: 'Generate AI caption for a post' })
+  async generateCaption(
+    @Request() req,
+    @Body() body: { businessProfileId: string; imageUrl?: string },
+  ) {
+    return this.contentStrategyService.generateCaption(
+      req.user.id,
+      body.businessProfileId,
+      body.imageUrl
+    );
   }
 
   @Get()

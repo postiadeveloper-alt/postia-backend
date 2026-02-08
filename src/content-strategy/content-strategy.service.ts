@@ -6,22 +6,22 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ContentStrategy, ContentFormat, ContentStatus } from './entities/content-strategy.entity';
 import { GenerateContentStrategyDto, UpdateContentStrategyDto, FormatDistributionDto } from './dto/content-strategy.dto';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
-import { 
-  startOfMonth, 
-  endOfMonth, 
-  eachDayOfInterval, 
-  getDay, 
-  format, 
+import {
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  getDay,
+  format,
   addWeeks,
   startOfWeek,
   getWeek
 } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { 
-  PromptContext, 
+import {
+  PromptContext,
   ContentFormatType,
   getSystemPromptByFormat,
-  getUserPromptByFormat 
+  getUserPromptByFormat
 } from './prompts/content-prompts';
 
 interface GeneratedContent {
@@ -51,7 +51,7 @@ export class ContentStrategyService {
   ) {
     const apiKey = this.configService.get<string>('GOOGLE_API_KEY');
     this.modelName = this.configService.get<string>('GOOGLE_MODEL') || 'gemini-2.0-flash';
-    
+
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
       this.logger.log(`Initialized Google AI with model: ${this.modelName}`);
@@ -71,7 +71,7 @@ export class ContentStrategyService {
 
     // Get business profile with all details
     const businessProfile = await this.businessProfileService.findOne(dto.businessProfileId);
-    
+
     if (!businessProfile) {
       throw new NotFoundException('Business profile not found');
     }
@@ -92,43 +92,43 @@ export class ContentStrategyService {
       const contentFormat = formatQueue[i];
       // Use modulo to cycle through dates if we have more formats than dates
       const day = targetDays[i % targetDays.length];
-      
+
       try {
         const content = await this.generateContentForDayWithFormat(
-          businessProfile, 
-          day, 
+          businessProfile,
+          day,
           totalFormats,
           contentFormat
         );
-          
-          const strategy = this.contentStrategyRepository.create({
-            scheduledDate: day,
-            dayOfWeek: getDay(day),
-            format: this.mapFormat(content.format),
-            hook: content.hook,
-            mainContent: content.mainContent,
-            frontPageDescription: content.frontPageDescription,
-            callToAction: content.callToAction,
-            hashtags: content.hashtags,
-            objective: content.objective,
-            targetEmotion: content.targetEmotion,
-            visualNotes: content.visualNotes,
-            contentPillar: content.contentPillar,
-            status: ContentStatus.DRAFT,
-            businessProfileId: dto.businessProfileId,
-            userId: userId,
-            metadata: {
-              generatedAt: new Date(),
-              model: this.modelName,
-              promptVersion: '2.0',
-              monthYear: dto.monthYear,
-              weekNumber: getWeek(day),
-              formatRequested: contentFormat,
-            },
-          });
 
-          const saved = await this.contentStrategyRepository.save(strategy);
-          generatedStrategies.push(saved);
+        const strategy = this.contentStrategyRepository.create({
+          scheduledDate: day,
+          dayOfWeek: getDay(day),
+          format: this.mapFormat(content.format),
+          hook: content.hook,
+          mainContent: content.mainContent,
+          frontPageDescription: content.frontPageDescription,
+          callToAction: content.callToAction,
+          hashtags: content.hashtags,
+          objective: content.objective,
+          targetEmotion: content.targetEmotion,
+          visualNotes: content.visualNotes,
+          contentPillar: content.contentPillar,
+          status: ContentStatus.DRAFT,
+          businessProfileId: dto.businessProfileId,
+          userId: userId,
+          metadata: {
+            generatedAt: new Date(),
+            model: this.modelName,
+            promptVersion: '2.0',
+            monthYear: dto.monthYear,
+            weekNumber: getWeek(day),
+            formatRequested: contentFormat,
+          },
+        });
+
+        const saved = await this.contentStrategyRepository.save(strategy);
+        generatedStrategies.push(saved);
       } catch (error) {
         this.logger.error(`Failed to generate ${contentFormat} for ${format(day, 'yyyy-MM-dd')}: ${error.message}`);
       }
@@ -148,7 +148,7 @@ export class ContentStrategyService {
     }
 
     const queue: ContentFormatType[] = [];
-    
+
     for (let i = 0; i < (distribution.reels || 0); i++) {
       queue.push('reel');
     }
@@ -203,7 +203,7 @@ export class ContentStrategyService {
     const userPrompt = getUserPromptByFormat(contentFormat, ctx);
 
     try {
-      const model = this.genAI.getGenerativeModel({ 
+      const model = this.genAI.getGenerativeModel({
         model: this.modelName,
       });
 
@@ -217,13 +217,13 @@ export class ContentStrategyService {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig,
       });
-      
+
       const response = result.response;
       let text = response.text();
-      
+
       // Clean up the response - remove markdown code blocks if present
       text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      
+
       // Parse the JSON response
       const content = JSON.parse(text);
       return content as GeneratedContent;
@@ -315,7 +315,7 @@ export class ContentStrategyService {
     dto: UpdateContentStrategyDto,
   ): Promise<ContentStrategy> {
     const strategy = await this.findOne(id);
-    
+
     if (strategy.userId !== userId) {
       throw new ForbiddenException('You do not have permission to update this content strategy');
     }
@@ -326,7 +326,7 @@ export class ContentStrategyService {
 
   async remove(id: string, userId: string): Promise<void> {
     const strategy = await this.findOne(id);
-    
+
     if (strategy.userId !== userId) {
       throw new ForbiddenException('You do not have permission to delete this content strategy');
     }
@@ -354,12 +354,88 @@ export class ContentStrategyService {
 
   async convertToPost(id: string, userId: string): Promise<ContentStrategy> {
     const strategy = await this.findOne(id);
-    
+
     if (strategy.userId !== userId) {
       throw new ForbiddenException('You do not have permission to convert this content strategy');
     }
 
     strategy.status = ContentStatus.APPROVED;
     return this.contentStrategyRepository.save(strategy);
+  }
+
+  async generateCaption(
+    userId: string,
+    businessProfileId: string,
+    imageUrl?: string,
+  ): Promise<{ caption: string }> {
+    if (!this.genAI) {
+      throw new ForbiddenException('Google API key not configured');
+    }
+
+    const businessProfile = await this.businessProfileService.findOne(businessProfileId);
+    if (!businessProfile) {
+      throw new NotFoundException('Business profile not found');
+    }
+
+    try {
+      const model = this.genAI.getGenerativeModel({ model: this.modelName });
+
+      let prompt = `Actúa como un social media manager profesional para la marca "${businessProfile.brandName}".
+      
+      Detalles de la marca:
+      - Industria: ${businessProfile.industry || 'No especificada'}
+      - Descripción: ${businessProfile.brandDescription || 'No especificada'}
+      - Valores: ${businessProfile.brandValues || 'No especificados'}
+      - Tono: ${businessProfile.communicationTone || 'Profesional'}
+      - Audiencia: ${businessProfile.targetAudience || 'General'}
+      
+      Tarea: Escribí una descripción (caption) atractiva para un post de Instagram.
+      
+      Requerimientos:
+      1. Idioma: Español Rioplatense (Argentina). Usá el "voseo" (ej: "mirá", "comprá", "sentite").
+      2. Usá el tono de la marca.
+      3. Si se proporciona una imagen, describila y relacionala con la marca de forma natural.
+      4. Buscá generar interacción (likes, comentarios, compartidos).
+      5. Incluí saltos de línea para facilitar la lectura.
+      6. Agregá de 5 a 10 hashtags relevantes al final.
+      7. Devolvé ÚNICAMENTE el texto de la descripción, nada más.
+      `;
+
+      const parts: any[] = [{ text: prompt }];
+
+      if (imageUrl) {
+        // If image URL is provided, we need to fetch it and convert to base64
+        // Note: In a real production env, might want to just pass the GCS URI if supported or optimize this
+        try {
+          // Verify if it's a URL we can access
+          const response = await fetch(imageUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+
+          const imagePart = {
+            inlineData: {
+              data: buffer.toString('base64'),
+              mimeType: response.headers.get('content-type') || 'image/jpeg',
+            },
+          };
+          parts.push(imagePart);
+        } catch (imgError) {
+          this.logger.error(`Failed to fetch image for caption generation: ${imgError.message}`);
+          // Continue without image if fetch fails
+          prompt += "\n\n(Note: An image was supposed to be attached but could not be loaded. Write a generic brand engagement post.)";
+        }
+      }
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts }],
+      });
+
+      const response = await result.response;
+      return { caption: response.text() };
+
+    } catch (error) {
+      this.logger.error(`Failed to generate caption: ${error.message}`);
+      throw error;
+    }
   }
 }

@@ -84,6 +84,16 @@ export class BusinessProfileService {
       throw new ForbiddenException('You do not have permission to delete this profile');
     }
 
+    const instagramAccountId = profile.instagramAccountId;
+
+    // Remove the business profile first (it has the FK to IG account)
     await this.businessProfileRepository.remove(profile);
+
+    // Also remove the linked Instagram account (1-to-1 relationship)
+    try {
+      await this.instagramService.remove(instagramAccountId);
+    } catch (error) {
+      console.warn(`Failed to remove linked Instagram account ${instagramAccountId}:`, error.message);
+    }
   }
 }

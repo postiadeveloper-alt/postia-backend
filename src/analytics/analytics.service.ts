@@ -49,11 +49,17 @@ export interface AccountOverview {
     caption: string;
     mediaType: string;
     mediaUrl: string;
+    thumbnailUrl: string;
     timestamp: string;
     likeCount: number;
     commentsCount: number;
     engagementRate: number;
   }>;
+  topPostsByFormat: {
+    IMAGE: Array<any>;
+    VIDEO: Array<any>;
+    CAROUSEL_ALBUM: Array<any>;
+  };
   insightsAvailable: boolean;
   insightsError?: string;
 }
@@ -103,44 +109,157 @@ export class AnalyticsService {
     let impressions = 0;
     let profileViews = 0;
     let topPosts: any[] = [];
+    let topPostsByFormat: { IMAGE: any[]; VIDEO: any[]; CAROUSEL_ALBUM: any[] } = {
+      IMAGE: [],
+      VIDEO: [],
+      CAROUSEL_ALBUM: [],
+    };
 
     try {
       // Use Facebook Graph API for Instagram Business accounts
-      console.log('📊 [Analytics] Fetching media from Instagram Business API...');
+      // Fetch posts from the last 3 months with pagination
+      console.log('📊 [Analytics] Fetching media from Instagram Business API (last 3 months)...');
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const threeMonthsAgoISO = threeMonthsAgo.toISOString();
+
+      let allPosts: any[] = [];
+      let nextPageUrl: string | null = null;
+      let keepPaging = true;
+
+      // First page
       const mediaResponse = await firstValueFrom(
         this.httpService.get(
           `${this.facebookGraphApiUrl}/${account.instagramUserId}/media`,
           {
             params: {
               fields: 'id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
-              limit: 10,
+              limit: 50,
               access_token: account.accessToken,
             },
           },
         ),
       );
 
-      console.log('📊 [Analytics] Media response:', mediaResponse.data?.data?.length || 0, 'posts found');
-
       if (mediaResponse.data?.data) {
+        allPosts = [...mediaResponse.data.data];
+        nextPageUrl = mediaResponse.data.paging?.next || null;
+      }
+
+      // Paginate until we have 3 months of content or no more pages
+      while (nextPageUrl && keepPaging) {
+        try {
+          const pageResponse = await firstValueFrom(
+            this.httpService.get(nextPageUrl),
+          );
+          if (pageResponse.data?.data && pageResponse.data.data.length > 0) {
+            const pagePosts = pageResponse.data.data;
+            allPosts = [...allPosts, ...pagePosts];
+            // Check if the oldest post in this page is older than 3 months
+            const oldestPost = pagePosts[pagePosts.length - 1];
+            if (oldestPost.timestamp && new Date(oldestPost.timestamp) < threeMonthsAgo) {
+              keepPaging = false;
+            }
+            nextPageUrl = pageResponse.data.paging?.next || null;
+          } else {
+            keepPaging = false;
+          }
+        } catch (pageError) {
+          console.warn('📊 [Analytics] Pagination error, stopping:', pageError.message);
+          keepPaging = false;
+        }
+      }
+
+      // Filter to only posts within the last 3 months
+      allPosts = allPosts.filter(
+        (post) => !post.timestamp || new Date(post.timestamp) >= threeMonthsAgo,
+      );
+
+      console.log('📊 [Analytics] Total posts found (last 3 months):', allPosts.length);
+
+      // For CAROUSEL_ALBUM posts, fetch children to get the first image
+      for (const post of allPosts) {
+        if (post.media_type === 'CAROUSEL_ALBUM') {
+          try {
+            const childrenResponse = await firstValueFrom(
+              this.httpService.get(
+                `${this.facebookGraphApiUrl}/${post.id}/children`,
+                {
+                  params: {
+                    fields: 'id,media_type,media_url,thumbnail_url',
+                    access_token: account.accessToken,
+                  },
+                },
+              ),
+            );
+            if (childrenResponse.data?.data?.length > 0) {
+              const firstChild = childrenResponse.data.data[0];
+              post._childMediaUrl = firstChild.media_url || firstChild.thumbnail_url || '';
+              post._childThumbnailUrl = firstChild.thumbnail_url || firstChild.media_url || '';
+            }
+          } catch (childError) {
+            console.warn('📊 [Analytics] Could not fetch carousel children for', post.id);
+          }
+        }
+      }
+
+      if (allPosts.length > 0) {
         insightsAvailable = true;
-        topPosts = mediaResponse.data.data
-          .map((post: any) => ({
+
+        // Map all posts to a standardized format
+        const mappedPosts = allPosts.map((post: any) => {
+          // Determine the best display image:
+          // - IMAGE: use media_url
+          // - VIDEO (reels): use thumbnail_url
+          // - CAROUSEL_ALBUM: use child's media_url, fallback to post's media_url
+          let displayUrl = '';
+          let thumbnailUrl = '';
+
+          if (post.media_type === 'VIDEO') {
+            displayUrl = post.thumbnail_url || post.media_url || '';
+            thumbnailUrl = post.thumbnail_url || '';
+          } else if (post.media_type === 'CAROUSEL_ALBUM') {
+            displayUrl = post._childMediaUrl || post.media_url || '';
+            thumbnailUrl = post._childThumbnailUrl || post.thumbnail_url || '';
+          } else {
+            // IMAGE
+            displayUrl = post.media_url || '';
+            thumbnailUrl = post.thumbnail_url || post.media_url || '';
+          }
+
+          return {
             id: post.id,
             caption: post.caption || '',
             mediaType: post.media_type,
-            mediaUrl: post.media_url || post.thumbnail_url,
+            mediaUrl: displayUrl,
+            thumbnailUrl: thumbnailUrl,
             timestamp: post.timestamp,
             likeCount: post.like_count || 0,
             commentsCount: post.comments_count || 0,
             engagementRate: account.followersCount > 0
               ? ((post.like_count || 0) + (post.comments_count || 0)) / account.followersCount * 100
               : 0,
-          }))
-          .sort((a: any, b: any) =>
-            (b.likeCount + b.commentsCount) - (a.likeCount + a.commentsCount)
-          )
-          .slice(0, 5);
+          };
+        });
+
+        // Sort all by engagement
+        mappedPosts.sort((a: any, b: any) =>
+          (b.likeCount + b.commentsCount) - (a.likeCount + a.commentsCount),
+        );
+
+        // Legacy topPosts: top 5 overall
+        topPosts = mappedPosts.slice(0, 5);
+
+        // Categorize by format and pick top 5 in each category
+        const images = mappedPosts.filter((p: any) => p.mediaType === 'IMAGE');
+        const videos = mappedPosts.filter((p: any) => p.mediaType === 'VIDEO');
+        const carousels = mappedPosts.filter((p: any) => p.mediaType === 'CAROUSEL_ALBUM');
+
+        topPostsByFormat = {
+          IMAGE: images.slice(0, 5),
+          VIDEO: videos.slice(0, 5),
+          CAROUSEL_ALBUM: carousels.slice(0, 5),
+        };
 
         // Calculate estimated reach from top posts
         reach = topPosts.reduce((acc, post) => acc + (post.likeCount * 3), 0);
@@ -187,6 +306,7 @@ export class AnalyticsService {
         postsChange,
       },
       topPosts,
+      topPostsByFormat,
       insightsAvailable,
       insightsError,
     };

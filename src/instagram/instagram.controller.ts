@@ -44,60 +44,45 @@ export class InstagramController {
   }
 
   @Get('callback')
-  @ApiOperation({ summary: 'Instagram OAuth callback - handle Facebook authorization' })
+  @ApiOperation({ summary: 'Instagram OAuth callback - handle Facebook authorization (JSON)' })
   async callback(
     @Query('code') code: string,
     @Query('state') state: string,
     @Query('error') error: string,
     @Query('error_description') errorDescription: string
   ) {
-    try {
-      if (error) {
-        console.log('❌ OAuth error:', error, errorDescription);
-        return this.instagramService.renderCallbackPage({
-          success: false,
-          error: errorDescription || 'Authorization was cancelled or failed. Please try again.',
-          errorType: 'user_denied'
-        });
-      }
-
-      if (!code) {
-        throw new Error('No authorization code received');
-      }
-
-      if (!state) {
-        throw new Error('Session expired. Please try connecting again from the app.');
-      }
-
-      const userId = state; // state contains the user ID
-      console.log('🔄 Processing OAuth callback for user:', userId);
-
-      // Step 1: Exchange code for access token
-      const accessToken = await this.instagramService.exchangeCodeForToken(code);
-
-      // Step 2: Connect Instagram account
-      const account = await this.instagramService.connectAccount(userId, accessToken);
-      console.log('✅ Instagram account connected:', account.username);
-
-      return this.instagramService.renderCallbackPage({
-        success: true,
-        account: {
-          id: account.id,
-          username: account.username,
-          name: account.name,
-          profilePictureUrl: account.profilePictureUrl,
-          biography: account.biography,
-          followersCount: account.followersCount
-        }
-      });
-    } catch (error) {
-      console.error('❌ Callback error:', error);
-      return this.instagramService.renderCallbackPage({
+    if (error) {
+      console.log('❌ OAuth error:', error, errorDescription);
+      return {
         success: false,
-        error: error.message || 'An unexpected error occurred while connecting your Instagram account.',
-        errorType: 'server_error'
-      });
+        error: errorDescription || 'Authorization was cancelled or failed. Please try again.',
+      };
     }
+
+    if (!code) {
+      throw new Error('No authorization code received');
+    }
+
+    if (!state) {
+      throw new Error('Session expired. Please try connecting again from the app.');
+    }
+
+    const userId = state;
+    console.log('🔄 Processing OAuth callback for user:', userId);
+
+    const accessToken = await this.instagramService.exchangeCodeForToken(code);
+    const account = await this.instagramService.connectAccount(userId, accessToken);
+    console.log('✅ Instagram account connected:', account.username);
+
+    return {
+      success: true,
+      id: account.id,
+      username: account.username,
+      name: account.name,
+      profilePictureUrl: account.profilePictureUrl,
+      biography: account.biography,
+      followersCount: account.followersCount,
+    };
   }
 
 

@@ -47,8 +47,13 @@ export class AppController {
       return this.instagramService.renderCallbackPage({
         success: true,
         account: {
+          id: account.id,
           username: account.username,
-          followers: account.followersCount
+          name: account.name,
+          profilePictureUrl: account.profilePictureUrl,
+          biography: account.biography,
+          followers: account.followersCount,
+          followersCount: account.followersCount
         }
       });
     } catch (e) {

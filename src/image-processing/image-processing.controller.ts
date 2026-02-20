@@ -1,8 +1,11 @@
-import { Controller, Post, UseGuards, UseInterceptors, UploadedFile, Req, Get, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Post, UseGuards, UseInterceptors, UploadedFile, Req, Get, Body, BadRequestException, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ImageProcessingService } from './image-processing.service';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { GenerateImageDto } from './dto/generate-image.dto';
+import { GenerateWithFormatDto } from './dto/generate-with-format.dto';
+import { GenerateAITemplatesDto } from './dto/generate-ai-templates.dto';
 
 @ApiTags('image-processing')
 @ApiBearerAuth()
@@ -22,13 +25,14 @@ export class ImageProcessingController {
                     type: 'string',
                     format: 'binary',
                 },
+                businessProfileId: { type: 'string' },
             },
         },
     })
     @ApiOperation({ summary: 'Upload a template image' })
-    async uploadTemplate(@Req() req, @UploadedFile() file: Express.Multer.File) {
+    async uploadTemplate(@Req() req, @UploadedFile() file: Express.Multer.File, @Body('businessProfileId') businessProfileId?: string) {
         if (!file) throw new BadRequestException('File is required');
-        return this.imageProcessingService.uploadTemplate(req.user.id, file);
+        return this.imageProcessingService.uploadTemplate(req.user.id, file, businessProfileId);
     }
 
     @Post('upload/content')
@@ -42,49 +46,38 @@ export class ImageProcessingController {
                     type: 'string',
                     format: 'binary',
                 },
+                businessProfileId: { type: 'string' },
             },
         },
     })
     @ApiOperation({ summary: 'Upload a content image' })
-    async uploadContent(@Req() req, @UploadedFile() file: Express.Multer.File) {
+    async uploadContent(@Req() req, @UploadedFile() file: Express.Multer.File, @Body('businessProfileId') businessProfileId?: string) {
         if (!file) throw new BadRequestException('File is required');
-        return this.imageProcessingService.uploadContent(req.user.id, file);
+        return this.imageProcessingService.uploadContent(req.user.id, file, businessProfileId);
     }
 
     @Post('generate')
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                templatePath: { type: 'string' },
-                contentPath: { type: 'string' }
-            }
-        }
-    })
     @ApiOperation({ summary: 'Generate a combined image' })
-    async generateImage(@Req() req, @Body() body: { templatePath: string; contentPath: string }) {
-        if (!body.templatePath || !body.contentPath) {
-            throw new BadRequestException('Template path and content path are required');
-        }
-        return this.imageProcessingService.generateImage(req.user.id, body.templatePath, body.contentPath);
+    async generateImage(@Req() req, @Body() body: GenerateImageDto) {
+        return this.imageProcessingService.generateImage(req.user.id, body.templatePath, body.contentPath, body.businessProfileId);
     }
 
     @Get('templates')
     @ApiOperation({ summary: 'List uploaded templates' })
-    async listTemplates(@Req() req) {
-        return this.imageProcessingService.listTemplates(req.user.id);
+    async listTemplates(@Req() req, @Query('businessProfileId') businessProfileId?: string) {
+        return this.imageProcessingService.listTemplates(req.user.id, businessProfileId);
     }
 
     @Get('content')
     @ApiOperation({ summary: 'List uploaded content' })
-    async listContent(@Req() req) {
-        return this.imageProcessingService.listContent(req.user.id);
+    async listContent(@Req() req, @Query('businessProfileId') businessProfileId?: string) {
+        return this.imageProcessingService.listContent(req.user.id, businessProfileId);
     }
 
     @Get('outputs')
     @ApiOperation({ summary: 'List generated outputs' })
-    async listOutputs(@Req() req) {
-        return this.imageProcessingService.listOutputs(req.user.id);
+    async listOutputs(@Req() req, @Query('businessProfileId') businessProfileId?: string) {
+        return this.imageProcessingService.listOutputs(req.user.id, businessProfileId);
     }
 
     @Post('upload/logo')
@@ -98,65 +91,30 @@ export class ImageProcessingController {
                     type: 'string',
                     format: 'binary',
                 },
-                instagramAccountId: { type: 'string' }
+                instagramAccountId: { type: 'string' },
+                businessProfileId: { type: 'string' }
             },
         },
     })
     @ApiOperation({ summary: 'Upload a business logo with background removal' })
-    async uploadLogo(@Req() req, @UploadedFile() file: Express.Multer.File, @Body('instagramAccountId') instagramAccountId: string) {
+    async uploadLogo(@Req() req, @UploadedFile() file: Express.Multer.File, @Body('instagramAccountId') instagramAccountId: string, @Body('businessProfileId') businessProfileId?: string) {
         if (!file) throw new BadRequestException('File is required');
         if (!instagramAccountId) throw new BadRequestException('instagramAccountId is required');
-        return this.imageProcessingService.uploadLogo(req.user.id, file, instagramAccountId);
+        return this.imageProcessingService.uploadLogo(req.user.id, file, instagramAccountId, businessProfileId);
     }
 
     @Post('generate-ai-templates')
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                instagramAccountId: { type: 'string' }
-            }
-        }
-    })
     @ApiOperation({ summary: 'Generate AI templates using business colors and logo' })
-    async generateAITemplates(@Req() req, @Body('instagramAccountId') instagramAccountId: string) {
-        if (!instagramAccountId) throw new BadRequestException('instagramAccountId is required');
-        return this.imageProcessingService.generateAITemplates(req.user.id, instagramAccountId);
+    async generateAITemplates(@Req() req, @Body() body: GenerateAITemplatesDto) {
+        return this.imageProcessingService.generateAITemplates(req.user.id, body.instagramAccountId, body.businessProfileId);
     }
 
     @Post('generate-with-format')
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                templatePath: { type: 'string' },
-                contentPath: { type: 'string' },
-                format: { type: 'string', enum: ['story', 'reel', 'post', 'carousel'] },
-                width: { type: 'number' },
-                height: { type: 'number' },
-                cropX: { type: 'number' },
-                cropY: { type: 'number' },
-                scale: { type: 'number' }
-            }
-        }
-    })
     @ApiOperation({ summary: 'Generate a combined image with custom format and positioning' })
     async generateImageWithFormat(
         @Req() req,
-        @Body() body: {
-            templatePath: string;
-            contentPath: string;
-            format: 'story' | 'reel' | 'post' | 'carousel';
-            width: number;
-            height: number;
-            cropX: number;
-            cropY: number;
-            scale: number;
-        }
+        @Body() body: GenerateWithFormatDto,
     ) {
-        if (!body.templatePath || !body.contentPath) {
-            throw new BadRequestException('Template path and content path are required');
-        }
         return this.imageProcessingService.generateImageWithFormat(
             req.user.id,
             body.templatePath,
@@ -168,7 +126,8 @@ export class ImageProcessingController {
                 cropX: body.cropX || 0,
                 cropY: body.cropY || 0,
                 scale: body.scale || 1
-            }
+            },
+            body.businessProfileId,
         );
     }
 }

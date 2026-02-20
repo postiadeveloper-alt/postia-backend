@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { GcsService } from '../storage/gcs.service';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import * as Jimp from 'jimp';
+import * as sharp from 'sharp';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { ImageAsset, ImageAssetType } from './entities/image-asset.entity';
@@ -19,17 +20,38 @@ export class ImageProcessingService {
         private readonly businessProfileService: BusinessProfileService,
     ) { }
 
-    async uploadLogo(userId: string, file: Express.Multer.File, instagramAccountId: string) {
+    /**
+     * Convert a buffer to PNG if it's in a format Jimp can't handle (WebP, AVIF, etc.).
+     * Returns the original buffer if it's already a Jimp-compatible format.
+     */
+    private async ensureJimpCompatible(buffer: Buffer): Promise<Buffer> {
+        // Check for WebP (RIFF....WEBP) or AVIF signatures
+        const isWebP = buffer.length > 12 &&
+            buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+            buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+
+        const isAVIF = buffer.length > 12 &&
+            buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
+
+        if (isWebP || isAVIF) {
+            this.logger.log(`Converting ${isWebP ? 'WebP' : 'AVIF'} image to PNG for Jimp compatibility`);
+            return sharp(buffer).png().toBuffer();
+        }
+        return buffer;
+    }
+
+    async uploadLogo(userId: string, file: Express.Multer.File, instagramAccountId: string, businessProfileId?: string) {
         this.logger.log(`Uploading logo for user ${userId} and account ${instagramAccountId}`);
 
         // 1. Process image to remove background
-        const image = await Jimp.read(file.buffer);
+        const compatibleBuffer = await this.ensureJimpCompatible(file.buffer);
+        const image = await Jimp.read(compatibleBuffer);
         const processedImage = await this.removeBackground(image);
         const processedBuffer = await processedImage.getBufferAsync(Jimp.MIME_PNG);
 
         // 2. Upload to GCS
         const fileName = `logo_${uuidv4()}.png`;
-        const folder = `${userId}/logos`;
+        const folder = businessProfileId ? `${userId}/${businessProfileId}/logos` : `${userId}/logos`;
 
         const mockFile: Express.Multer.File = {
             buffer: processedBuffer,
@@ -43,6 +65,7 @@ export class ImageProcessingService {
         // 3. Save as asset
         const asset = this.imageAssetRepository.create({
             userId,
+            businessProfileId: businessProfileId || null,
             type: ImageAssetType.LOGO,
             originalName: file.originalname,
             gcsPath: uploadResult.path,
@@ -83,7 +106,7 @@ export class ImageProcessingService {
         return image;
     }
 
-    async generateAITemplates(userId: string, instagramAccountId: string) {
+    async generateAITemplates(userId: string, instagramAccountId: string, businessProfileId?: string) {
         this.logger.log(`Generating AI templates for user ${userId} and account ${instagramAccountId}`);
 
         // 1. Get business profile info
@@ -101,9 +124,13 @@ export class ImageProcessingService {
                 });
                 if (logoAsset) {
                     const buffer = await this.gcsService.downloadFile(logoAsset.gcsPath);
-                    logoImage = await Jimp.read(buffer);
+                    logoImage = await Jimp.read(await this.ensureJimpCompatible(buffer));
                 } else {
-                    logoImage = await Jimp.read(logoUrl);
+                    // Download from URL first, then ensure compatibility
+                    const axios = require('axios');
+                    const response = await axios.get(logoUrl, { responseType: 'arraybuffer' });
+                    const urlBuffer = Buffer.from(response.data);
+                    logoImage = await Jimp.read(await this.ensureJimpCompatible(urlBuffer));
                 }
             } catch (e) {
                 this.logger.warn(`Could not load logo image: ${e.message}`);
@@ -135,10 +162,12 @@ export class ImageProcessingService {
                 size: buffer.length
             } as any;
 
-            const uploadResult = await this.gcsService.uploadFile(mockFile, `${userId}/templates`);
+            const templateFolder = businessProfileId ? `${userId}/${businessProfileId}/templates` : `${userId}/templates`;
+            const uploadResult = await this.gcsService.uploadFile(mockFile, templateFolder);
 
             const asset = this.imageAssetRepository.create({
                 userId,
+                businessProfileId: businessProfileId || null,
                 type: ImageAssetType.TEMPLATE,
                 originalName: fileName,
                 gcsPath: uploadResult.path,
@@ -271,12 +300,13 @@ export class ImageProcessingService {
         }
     }
 
-    async uploadTemplate(userId: string, file: Express.Multer.File) {
-        const folder = `${userId}/templates`;
+    async uploadTemplate(userId: string, file: Express.Multer.File, businessProfileId?: string) {
+        const folder = businessProfileId ? `${userId}/${businessProfileId}/templates` : `${userId}/templates`;
         const uploadResult = await this.gcsService.uploadFile(file, folder);
 
         const asset = this.imageAssetRepository.create({
             userId,
+            businessProfileId: businessProfileId || null,
             type: ImageAssetType.TEMPLATE,
             originalName: file.originalname,
             gcsPath: uploadResult.path,
@@ -286,12 +316,13 @@ export class ImageProcessingService {
         return this.imageAssetRepository.save(asset);
     }
 
-    async uploadContent(userId: string, file: Express.Multer.File) {
-        const folder = `${userId}/content`;
+    async uploadContent(userId: string, file: Express.Multer.File, businessProfileId?: string) {
+        const folder = businessProfileId ? `${userId}/${businessProfileId}/content` : `${userId}/content`;
         const uploadResult = await this.gcsService.uploadFile(file, folder);
 
         const asset = this.imageAssetRepository.create({
             userId,
+            businessProfileId: businessProfileId || null,
             type: ImageAssetType.CONTENT,
             originalName: file.originalname,
             gcsPath: uploadResult.path,
@@ -301,28 +332,34 @@ export class ImageProcessingService {
         return this.imageAssetRepository.save(asset);
     }
 
-    async listTemplates(userId: string) {
+    async listTemplates(userId: string, businessProfileId?: string) {
+        const where: any = { userId, type: ImageAssetType.TEMPLATE };
+        if (businessProfileId) where.businessProfileId = businessProfileId;
         return this.imageAssetRepository.find({
-            where: { userId, type: ImageAssetType.TEMPLATE },
+            where,
             order: { createdAt: 'DESC' },
         });
     }
 
-    async listContent(userId: string) {
+    async listContent(userId: string, businessProfileId?: string) {
+        const where: any = { userId, type: ImageAssetType.CONTENT };
+        if (businessProfileId) where.businessProfileId = businessProfileId;
         return this.imageAssetRepository.find({
-            where: { userId, type: ImageAssetType.CONTENT },
+            where,
             order: { createdAt: 'DESC' },
         });
     }
 
-    async listOutputs(userId: string) {
+    async listOutputs(userId: string, businessProfileId?: string) {
+        const where: any = { userId, type: ImageAssetType.OUTPUT };
+        if (businessProfileId) where.businessProfileId = businessProfileId;
         return this.imageAssetRepository.find({
-            where: { userId, type: ImageAssetType.OUTPUT },
+            where,
             order: { createdAt: 'DESC' },
         });
     }
 
-    async generateImage(userId: string, templatePath: string, contentPath: string) {
+    async generateImage(userId: string, templatePath: string, contentPath: string, businessProfileId?: string) {
         this.logger.log(`Generating image for user ${userId} with template ${templatePath} and content ${contentPath}`);
 
         try {
@@ -332,9 +369,9 @@ export class ImageProcessingService {
                 this.gcsService.downloadFile(contentPath),
             ]);
 
-            // 2. Process images with Jimp
-            const templateImage = await Jimp.read(templateBuffer);
-            const contentImage = await Jimp.read(contentBuffer);
+            // 2. Process images with Jimp (convert WebP/AVIF if needed)
+            const templateImage = await Jimp.read(await this.ensureJimpCompatible(templateBuffer));
+            const contentImage = await Jimp.read(await this.ensureJimpCompatible(contentBuffer));
 
             // Resize content to cover template dimensions
             contentImage.cover(templateImage.getWidth(), templateImage.getHeight());
@@ -347,7 +384,7 @@ export class ImageProcessingService {
 
             // 3. Upload result
             const fileName = `generated_${uuidv4()}.png`;
-            const outputFolder = `${userId}/output`;
+            const outputFolder = businessProfileId ? `${userId}/${businessProfileId}/output` : `${userId}/output`;
 
             // Mock a multer file object to reuse uploadFile
             const file: Express.Multer.File = {
@@ -362,6 +399,7 @@ export class ImageProcessingService {
             // 4. Save metadata
             const asset = this.imageAssetRepository.create({
                 userId,
+                businessProfileId: businessProfileId || null,
                 type: ImageAssetType.OUTPUT,
                 originalName: fileName,
                 gcsPath: uploadResult.path,
@@ -387,7 +425,8 @@ export class ImageProcessingService {
             cropX: number;
             cropY: number;
             scale: number;
-        }
+        },
+        businessProfileId?: string,
     ) {
         this.logger.log(`Generating image with format for user ${userId}. Format: ${formatSettings.format}, Size: ${formatSettings.width}x${formatSettings.height}`);
 
@@ -398,9 +437,9 @@ export class ImageProcessingService {
                 this.gcsService.downloadFile(contentPath),
             ]);
 
-            // 2. Process images with Jimp
-            const templateImage = await Jimp.read(templateBuffer);
-            const contentImage = await Jimp.read(contentBuffer);
+            // 2. Process images with Jimp (convert WebP/AVIF if needed)
+            const templateImage = await Jimp.read(await this.ensureJimpCompatible(templateBuffer));
+            const contentImage = await Jimp.read(await this.ensureJimpCompatible(contentBuffer));
 
             const targetWidth = formatSettings.width;
             const targetHeight = formatSettings.height;
@@ -473,7 +512,7 @@ export class ImageProcessingService {
 
             // 9. Upload result
             const fileName = `generated_${formatSettings.format}_${uuidv4()}.png`;
-            const outputFolder = `${userId}/output`;
+            const outputFolder = businessProfileId ? `${userId}/${businessProfileId}/output` : `${userId}/output`;
 
             const file: Express.Multer.File = {
                 buffer: outputBuffer,
@@ -487,6 +526,7 @@ export class ImageProcessingService {
             // 10. Save metadata
             const asset = this.imageAssetRepository.create({
                 userId,
+                businessProfileId: businessProfileId || null,
                 type: ImageAssetType.OUTPUT,
                 originalName: fileName,
                 gcsPath: uploadResult.path,

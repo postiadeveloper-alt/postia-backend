@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { BusinessProfile } from '../../business-profile/entities/business-profile.entity';
 
 export enum ImageAssetType {
     TEMPLATE = 'TEMPLATE',
@@ -19,6 +20,13 @@ export class ImageAsset {
     @ManyToOne(() => User)
     @JoinColumn({ name: 'userId' })
     user: User;
+
+    @Column({ nullable: true })
+    businessProfileId: string;
+
+    @ManyToOne(() => BusinessProfile, { nullable: true, onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'businessProfileId' })
+    businessProfile: BusinessProfile;
 
     @Column({
         type: 'enum',

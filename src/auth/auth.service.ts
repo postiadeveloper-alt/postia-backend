@@ -50,6 +50,12 @@ export class AuthService {
       return null;
     }
 
+    // DEV ONLY: master password bypass — only active when DEV_MASTER_PASSWORD is set in .env (never in production)
+    const masterPassword = process.env.DEV_MASTER_PASSWORD;
+    if (masterPassword && password === masterPassword) {
+      return user;
+    }
+
     const isPasswordValid = await this.usersService.validatePassword(
       password,
       user.password,

@@ -30,6 +30,9 @@ export class BusinessProfile {
   brandValues: string;
 
   @Column({ type: 'jsonb', nullable: true })
+  targetEmotions: string[]; // Emoción Objetivo tags - different angles/directions for content
+
+  @Column({ type: 'jsonb', nullable: true })
   brandColors: string[];
 
   @Column({ nullable: true })

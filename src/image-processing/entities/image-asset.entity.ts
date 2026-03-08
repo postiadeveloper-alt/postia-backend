@@ -43,6 +43,9 @@ export class ImageAsset {
     @Column()
     publicUrl: string; // The accessible URL
 
+    @Column({ nullable: true })
+    targetEmotion: string; // Emoción Objetivo tag for grouping in gallery
+
     @CreateDateColumn()
     createdAt: Date;
 }

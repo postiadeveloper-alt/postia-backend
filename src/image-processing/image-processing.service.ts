@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GcsService } from '../storage/gcs.service';
@@ -359,6 +359,13 @@ export class ImageProcessingService {
         });
     }
 
+    async updateAssetEmotion(userId: string, assetId: string, targetEmotion: string): Promise<ImageAsset> {
+        const asset = await this.imageAssetRepository.findOne({ where: { id: assetId, userId } });
+        if (!asset) throw new NotFoundException('Asset not found');
+        asset.targetEmotion = targetEmotion || null;
+        return this.imageAssetRepository.save(asset);
+    }
+
     async generateImage(userId: string, templatePath: string, contentPath: string, businessProfileId?: string) {
         this.logger.log(`Generating image for user ${userId} with template ${templatePath} and content ${contentPath}`);
 
@@ -414,6 +421,156 @@ export class ImageProcessingService {
         }
     }
 
+    // ─── Core compositing pipeline (shared by GCS-path and inline-buffer flows) ──
+    private async doCompositeWithFormat(
+        contentBuffer: Buffer,
+        templateBuffer: Buffer,
+        formatSettings: {
+            format: string;
+            width: number;
+            height: number;
+            cropX: number;
+            cropY: number;
+            scale: number;
+            overlayText?: string;
+            overlayFont?: string;
+            overlayColor?: string;
+            overlaySize?: number;
+            overlayX?: number;
+            overlayY?: number;
+        },
+        userId: string,
+        businessProfileId?: string,
+    ): Promise<ImageAsset> {
+        this.logger.log('='.repeat(60));
+        this.logger.log(`[doComposite] RECEIVED: format=${formatSettings.format} target=${formatSettings.width}x${formatSettings.height} cropX=${formatSettings.cropX} cropY=${formatSettings.cropY} scale=${formatSettings.scale}`);
+        this.logger.log(`[doComposite] types: cropX=${typeof formatSettings.cropX} cropY=${typeof formatSettings.cropY} scale=${typeof formatSettings.scale}`);
+        if (formatSettings.overlayText) {
+            this.logger.log(`[doComposite] TEXT: "${formatSettings.overlayText}" font=${formatSettings.overlayFont} size=${formatSettings.overlaySize} color=${formatSettings.overlayColor} x=${formatSettings.overlayX} y=${formatSettings.overlayY}`);
+        }
+
+        const targetWidth = formatSettings.width;
+        const targetHeight = formatSettings.height;
+
+        // Get content dimensions
+        const contentMeta = await sharp(contentBuffer).metadata();
+        const contentOrigWidth = contentMeta.width!;
+        const contentOrigHeight = contentMeta.height!;
+        this.logger.log(`[doComposite] Content original: ${contentOrigWidth}x${contentOrigHeight}`);
+
+        // Cover-fit ratio then apply user scale — mirrors getImageDisplaySize() in the frontend
+        const coverRatio = Math.max(targetWidth / contentOrigWidth, targetHeight / contentOrigHeight);
+        const scaledWidth  = Math.max(1, Math.round(contentOrigWidth  * coverRatio * formatSettings.scale));
+        const scaledHeight = Math.max(1, Math.round(contentOrigHeight * coverRatio * formatSettings.scale));
+
+        this.logger.log(`[doComposite] coverRatio=${coverRatio.toFixed(4)} scaledContent=${scaledWidth}x${scaledHeight}`);
+
+        // Resize content
+        const contentResizedBuf = await sharp(contentBuffer)
+            .resize(scaledWidth, scaledHeight, { fit: 'fill' })
+            .ensureAlpha()
+            .toBuffer();
+
+        // Position: centered, then offset by user crop
+        //   cropX = -dragX * scaleRatio  ← set by FormatEditorModal handleConfirm
+        const centerX = Math.round((targetWidth  - scaledWidth)  / 2);
+        const centerY = Math.round((targetHeight - scaledHeight) / 2);
+        let compositeLeft = centerX - formatSettings.cropX;
+        let compositeTop  = centerY - formatSettings.cropY;
+
+        this.logger.log(`[doComposite] centerX=${centerX} centerY=${centerY} → compositeLeft=${compositeLeft} compositeTop=${compositeTop}`);
+
+        // Sharp requires left/top >= 0: extract the visible slice when content hangs off top-left
+        let contentForComposite = contentResizedBuf;
+        if (compositeLeft < 0 || compositeTop < 0) {
+            const exLeft = Math.max(0, -compositeLeft);
+            const exTop  = Math.max(0, -compositeTop);
+            const exW    = Math.min(scaledWidth  - exLeft, targetWidth);
+            const exH    = Math.min(scaledHeight - exTop,  targetHeight);
+
+            this.logger.log(`[doComposite] Extracting visible slice: left=${exLeft} top=${exTop} w=${exW} h=${exH}`);
+
+            if (exW > 0 && exH > 0) {
+                contentForComposite = await sharp(contentResizedBuf)
+                    .extract({ left: exLeft, top: exTop, width: exW, height: exH })
+                    .toBuffer();
+            }
+            compositeLeft = Math.max(0, compositeLeft);
+            compositeTop  = Math.max(0, compositeTop);
+        }
+
+        // Template: cover-fit to frame, preserve alpha
+        const templateResizedBuf = await sharp(templateBuffer)
+            .resize(targetWidth, targetHeight, { fit: 'cover', position: 'centre' })
+            .ensureAlpha()
+            .toBuffer();
+
+        // Build composite layers: canvas → content → template → text
+        const compositeLayers: sharp.OverlayOptions[] = [
+            { input: contentForComposite, left: compositeLeft, top: compositeTop },
+            { input: templateResizedBuf, left: 0, top: 0 },
+        ];
+
+        // ── Text overlay (SVG-based) — on top of everything ──────────
+        if (formatSettings.overlayText?.trim()) {
+            const textSvg = this.buildTextOverlaySvg(
+                formatSettings.overlayText.trim(),
+                targetWidth,
+                targetHeight,
+                formatSettings.overlayFont || 'Inter',
+                formatSettings.overlaySize || 72,
+                formatSettings.overlayColor || '#ffffff',
+                formatSettings.overlayX ?? Math.round(targetWidth / 2),
+                formatSettings.overlayY ?? Math.round(targetHeight * 0.85),
+            );
+            const textBuffer = await sharp(Buffer.from(textSvg))
+                .resize(targetWidth, targetHeight)
+                .ensureAlpha()
+                .toBuffer();
+            compositeLayers.push({ input: textBuffer, left: 0, top: 0 });
+        }
+
+        // Black canvas → composite all layers
+        const outputBuffer = await sharp({
+            create: {
+                width: targetWidth, height: targetHeight,
+                channels: 4,
+                background: { r: 0, g: 0, b: 0, alpha: 1 },
+            },
+        })
+        .composite(compositeLayers)
+        .png()
+        .toBuffer();
+
+        this.logger.log(`[doComposite] Output: ${outputBuffer.length} bytes (compositeLeft=${compositeLeft} compositeTop=${compositeTop})`);
+        this.logger.log('='.repeat(60));
+
+        const fileName = `generated_${formatSettings.format}_${uuidv4()}.png`;
+        const outputFolder = businessProfileId ? `${userId}/${businessProfileId}/output` : `${userId}/output`;
+
+        const file: Express.Multer.File = {
+            buffer: outputBuffer,
+            originalname: fileName,
+            mimetype: 'image/png',
+            size: outputBuffer.length,
+        } as any;
+
+        const uploadResult = await this.gcsService.uploadFile(file, outputFolder);
+
+        const asset = this.imageAssetRepository.create({
+            userId,
+            businessProfileId: businessProfileId || null,
+            type: ImageAssetType.OUTPUT,
+            originalName: fileName,
+            gcsPath: uploadResult.path,
+            publicUrl: uploadResult.publicUrl,
+            targetEmotion: (formatSettings as any).targetEmotion || null,
+        });
+
+        return this.imageAssetRepository.save(asset);
+    }
+
+    // ─── Generate from two GCS paths (original flow) ────────────────────────
     async generateImageWithFormat(
         userId: string,
         templatePath: string,
@@ -425,120 +582,133 @@ export class ImageProcessingService {
             cropX: number;
             cropY: number;
             scale: number;
+            overlayText?: string;
+            overlayFont?: string;
+            overlayColor?: string;
+            overlaySize?: number;
+            overlayX?: number;
+            overlayY?: number;
+            targetEmotion?: string;
         },
         businessProfileId?: string,
     ) {
-        this.logger.log(`Generating image with format for user ${userId}. Format: ${formatSettings.format}, Size: ${formatSettings.width}x${formatSettings.height}`);
-
+        this.logger.log(`[generateWithFormat] user=${userId} format=${formatSettings.format} ${formatSettings.width}x${formatSettings.height} cropX=${formatSettings.cropX} cropY=${formatSettings.cropY} scale=${formatSettings.scale}`);
         try {
-            // 1. Download images
             const [templateBuffer, contentBuffer] = await Promise.all([
                 this.gcsService.downloadFile(templatePath),
                 this.gcsService.downloadFile(contentPath),
             ]);
-
-            // 2. Process images with Jimp (convert WebP/AVIF if needed)
-            const templateImage = await Jimp.read(await this.ensureJimpCompatible(templateBuffer));
-            const contentImage = await Jimp.read(await this.ensureJimpCompatible(contentBuffer));
-
-            const targetWidth = formatSettings.width;
-            const targetHeight = formatSettings.height;
-
-            // 3. Create output canvas with transparent background
-            const outputImage = new Jimp(targetWidth, targetHeight, 0x00000000);
-
-            // 4. Calculate content image dimensions after scaling
-            const contentOrigWidth = contentImage.getWidth();
-            const contentOrigHeight = contentImage.getHeight();
-
-            // Scale the content image to cover the target dimensions, then apply user scale
-            const coverRatioW = targetWidth / contentOrigWidth;
-            const coverRatioH = targetHeight / contentOrigHeight;
-            const coverRatio = Math.max(coverRatioW, coverRatioH);
-
-            const scaledWidth = Math.round(contentOrigWidth * coverRatio * formatSettings.scale);
-            const scaledHeight = Math.round(contentOrigHeight * coverRatio * formatSettings.scale);
-
-            // Resize content
-            const contentResized = contentImage.clone().resize(scaledWidth, scaledHeight);
-
-            // 5. Calculate position (center by default, then apply user offset)
-            const centerX = Math.round((targetWidth - scaledWidth) / 2);
-            const centerY = Math.round((targetHeight - scaledHeight) / 2);
-
-            const posX = centerX - formatSettings.cropX;
-            const posY = centerY - formatSettings.cropY;
-
-            // 6. Composite content onto output
-            outputImage.composite(contentResized, posX, posY);
-
-            // 7. Process template: use cover() to properly crop to target dimensions
-            // This ensures the template is cropped (not stretched) to fit the format
-            const templateOrigWidth = templateImage.getWidth();
-            const templateOrigHeight = templateImage.getHeight();
-
-            // Calculate how to crop the template to the target aspect ratio
-            const targetAspect = targetWidth / targetHeight;
-            const templateAspect = templateOrigWidth / templateOrigHeight;
-
-            let templateCropped: Jimp;
-
-            if (Math.abs(targetAspect - templateAspect) < 0.01) {
-                // Aspect ratios are very similar, just resize
-                templateCropped = templateImage.clone().resize(targetWidth, targetHeight);
-            } else if (targetAspect > templateAspect) {
-                // Target is wider than template - crop top/bottom from template
-                const newTemplateHeight = Math.round(templateOrigWidth / targetAspect);
-                const cropY = Math.round((templateOrigHeight - newTemplateHeight) / 2);
-                templateCropped = templateImage.clone()
-                    .crop(0, Math.max(0, cropY), templateOrigWidth, Math.min(newTemplateHeight, templateOrigHeight))
-                    .resize(targetWidth, targetHeight);
-            } else {
-                // Target is taller than template - crop left/right from template
-                const newTemplateWidth = Math.round(templateOrigHeight * targetAspect);
-                const cropX = Math.round((templateOrigWidth - newTemplateWidth) / 2);
-                templateCropped = templateImage.clone()
-                    .crop(Math.max(0, cropX), 0, Math.min(newTemplateWidth, templateOrigWidth), templateOrigHeight)
-                    .resize(targetWidth, targetHeight);
-            }
-
-            // Composite cropped template on top
-            outputImage.composite(templateCropped, 0, 0);
-
-            // 8. Final crop to ensure exact dimensions (safety measure)
-            outputImage.crop(0, 0, targetWidth, targetHeight);
-
-            const outputBuffer = await outputImage.getBufferAsync(Jimp.MIME_PNG);
-
-            // 9. Upload result
-            const fileName = `generated_${formatSettings.format}_${uuidv4()}.png`;
-            const outputFolder = businessProfileId ? `${userId}/${businessProfileId}/output` : `${userId}/output`;
-
-            const file: Express.Multer.File = {
-                buffer: outputBuffer,
-                originalname: fileName,
-                mimetype: 'image/png',
-                size: outputBuffer.length,
-            } as any;
-
-            const uploadResult = await this.gcsService.uploadFile(file, outputFolder);
-
-            // 10. Save metadata
-            const asset = this.imageAssetRepository.create({
-                userId,
-                businessProfileId: businessProfileId || null,
-                type: ImageAssetType.OUTPUT,
-                originalName: fileName,
-                gcsPath: uploadResult.path,
-                publicUrl: uploadResult.publicUrl,
-            });
-
-            return this.imageAssetRepository.save(asset);
-
+            return this.doCompositeWithFormat(contentBuffer, templateBuffer, formatSettings, userId, businessProfileId);
         } catch (error) {
             this.logger.error(`Failed to generate image with format: ${error.message}`, error.stack);
             throw new BadRequestException(`Image generation failed: ${error.message}`);
         }
+    }
+
+    // ─── Generate from inline template buffer + GCS content path ────────────
+    //     Used when a locally-generated preview template is selected in the UI
+    async generateImageWithFormatInline(
+        userId: string,
+        templateFile: Express.Multer.File,
+        contentPath: string,
+        formatSettings: {
+            format: 'story' | 'reel' | 'post' | 'carousel';
+            width: number;
+            height: number;
+            cropX: number;
+            cropY: number;
+            scale: number;
+            overlayText?: string;
+            overlayFont?: string;
+            overlayColor?: string;
+            overlaySize?: number;
+            overlayX?: number;
+            overlayY?: number;
+            targetEmotion?: string;
+        },
+        businessProfileId?: string,
+    ) {
+        this.logger.log(`[generateWithFormatInline] user=${userId} format=${formatSettings.format} ${formatSettings.width}x${formatSettings.height}`);
+        try {
+            const contentBuffer = await this.gcsService.downloadFile(contentPath);
+            return this.doCompositeWithFormat(contentBuffer, templateFile.buffer, formatSettings, userId, businessProfileId);
+        } catch (error) {
+            this.logger.error(`Failed to generate image with format (inline): ${error.message}`, error.stack);
+            throw new BadRequestException(`Image generation failed: ${error.message}`);
+        }
+    }
+
+    // ─── Build SVG text overlay for compositing ─────────────────────────────
+    private buildTextOverlaySvg(
+        text: string,
+        width: number,
+        height: number,
+        fontFamily: string,
+        fontSize: number,
+        color: string,
+        posX: number,
+        posY: number,
+    ): string {
+        // Escape XML entities
+        const escaped = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+
+        // Split into lines on newline characters
+        const lines = escaped.split(/\n/);
+
+        // Build tspan chain for a given anchor x,y
+        // Each text element must get its own tspan chain because dy values are relative
+        const lineHeight = Math.round(fontSize * 1.15);
+        const blockOffset = -((lines.length - 1) * lineHeight) / 2;
+
+        const makeTspans = (ax: number) =>
+            lines.map((line, i) => {
+                const dy = i === 0 ? blockOffset : lineHeight;
+                return `<tspan x="${ax}" dy="${dy}">${line || ' '}</tspan>`;
+            }).join('');
+
+        const commonAttrs = (ax: number, ay: number) =>
+            `x="${ax}" y="${ay}" text-anchor="middle" dominant-baseline="central" ` +
+            `font-family="${fontFamily}, sans-serif" font-size="${fontSize}" font-weight="700"`;
+
+        // Shadow layer: offset copies — avoids feDropShadow which is unsupported in older librsvg
+        const shadowOffsets = [[3, 3], [-3, 3], [3, -3], [-3, -3], [0, 4], [0, -2]];
+        const shadowLayers = shadowOffsets
+            .map(([dx, dy]) =>
+                `<text ${commonAttrs(posX + dx, posY + dy)} fill="black" fill-opacity="0.45">${makeTspans(posX + dx)}</text>`,
+            )
+            .join('\n  ');
+
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  ${shadowLayers}
+  <text ${commonAttrs(posX, posY)} fill="${color}">${makeTspans(posX)}</text>
+</svg>`;
+    }
+
+    // ─── Return base64 preview PNGs for all 6 template types ────────────────
+    //     Returns instantly — no GCS upload, no DB record
+    async getTemplatesPreviews(primary: string, secondary: string): Promise<Array<{ name: string; label: string; dataUrl: string }>> {
+        const configs = [
+            { name: 'border',          label: 'Borde' },
+            { name: 'bottom_gradient', label: 'Degradado Inferior' },
+            { name: 'glass',           label: 'Panel Glass' },
+            { name: 'geometric',       label: 'Geométrico' },
+            { name: 'double_frame',    label: 'Marco Doble' },
+            { name: 'header_footer',   label: 'Encabezado / Pie' },
+        ];
+
+        const results = await Promise.all(
+            configs.map(async ({ name, label }) => {
+                const template = await this.createTemplate(name, primary, secondary, null);
+                const buffer = await template.getBufferAsync(Jimp.MIME_PNG);
+                return { name, label, dataUrl: `data:image/png;base64,${buffer.toString('base64')}` };
+            })
+        );
+        return results;
     }
 }
 

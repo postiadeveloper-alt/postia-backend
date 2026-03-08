@@ -21,6 +21,7 @@ export interface PromptContext {
   dayName: string;
   dateStr: string;
   totalPostsInMonth: number;
+  targetEmotion?: string; // Specific emotion direction for this content piece (from business profile)
 }
 
 // ============================================================================
@@ -180,6 +181,13 @@ Tu especialidad es crear Carruseles de Instagram que maximicen guardados y tiemp
 Los carruseles son perfectos para: tutoriales paso a paso, listas de tips, datos curiosos, antes/después detallado, mini-cursos, historias con desarrollo, comparativas.`;
 
 export function getCarouselUserPrompt(ctx: PromptContext): string {
+  const emotionDirective = ctx.targetEmotion
+    ? `\n\n## EMOCIÓN OBJETIVO (OBLIGATORIA)
+La emoción/ángulo principal de este carrusel DEBE ser: **${ctx.targetEmotion}**
+Todo el contenido, gancho, slides y CTA deben estar enfocados en transmitir esta emoción específica.
+El campo "targetEmotion" en el JSON de respuesta DEBE ser exactamente: "${ctx.targetEmotion}"`
+    : '';
+
   return `Crea un CARRUSEL de Instagram educativo/informativo para la siguiente marca:
 
 ## INFORMACIÓN DE LA MARCA
@@ -194,7 +202,7 @@ export function getCarouselUserPrompt(ctx: PromptContext): string {
 - **Categorías de Producto/Servicio:** ${ctx.productCategories}
 - **Guías de Contenido:** ${ctx.contentGuidelines}
 - **Temas Prohibidos:** ${ctx.prohibitedTopics}
-- **Colores de Marca:** ${ctx.brandColors}
+- **Colores de Marca:** ${ctx.brandColors}${emotionDirective}
 
 ## DETALLES DE LA PUBLICACIÓN
 - **Día:** ${ctx.dayName}

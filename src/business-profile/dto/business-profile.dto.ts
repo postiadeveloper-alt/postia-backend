@@ -27,6 +27,11 @@ export class CreateBusinessProfileDto {
   @IsString()
   brandValues?: string;
 
+  @ApiProperty({ example: ['curiosidad', 'inspiración', 'humor'], required: false, description: 'Target emotion tags for content direction' })
+  @IsOptional()
+  @IsArray()
+  targetEmotions?: string[];
+
   @ApiProperty({ example: ['#3B82F6', '#1E40AF', '#FFFFFF'], required: false })
   @IsOptional()
   @IsArray()
@@ -102,6 +107,11 @@ export class UpdateBusinessProfileDto {
   @IsOptional()
   @IsString()
   brandValues?: string;
+
+  @ApiProperty({ required: false, description: 'Target emotion tags for content direction' })
+  @IsOptional()
+  @IsArray()
+  targetEmotions?: string[];
 
   @ApiProperty({ required: false })
   @IsOptional()

@@ -83,7 +83,16 @@ export class ContentStrategyService {
     const formatQueue = this.buildFormatQueue(dto.formatDistribution);
     const totalFormats = formatQueue.length;
 
+    // Get targetEmotions from business profile for carousel distribution
+    const targetEmotions: string[] = businessProfile.targetEmotions?.length
+      ? businessProfile.targetEmotions
+      : [];
+    let carouselEmotionIndex = 0;
+
     this.logger.log(`Generating ${totalFormats} total content pieces distributed across ${targetDays.length} dates`);
+    if (targetEmotions.length > 0) {
+      this.logger.log(`Business profile has ${targetEmotions.length} target emotions: ${targetEmotions.join(', ')}`);
+    }
 
     // Generate content by distributing formats across dates
     const generatedStrategies: ContentStrategy[] = [];
@@ -93,12 +102,20 @@ export class ContentStrategyService {
       // Use modulo to cycle through dates if we have more formats than dates
       const day = targetDays[i % targetDays.length];
 
+      // For carousels, assign a specific targetEmotion from the business profile
+      let assignedEmotion: string | undefined;
+      if (contentFormat === 'carousel' && targetEmotions.length > 0) {
+        assignedEmotion = targetEmotions[carouselEmotionIndex % targetEmotions.length];
+        carouselEmotionIndex++;
+      }
+
       try {
         const content = await this.generateContentForDayWithFormat(
           businessProfile,
           day,
           totalFormats,
-          contentFormat
+          contentFormat,
+          assignedEmotion
         );
 
         const strategy = this.contentStrategyRepository.create({
@@ -111,7 +128,7 @@ export class ContentStrategyService {
           callToAction: content.callToAction,
           hashtags: content.hashtags,
           objective: content.objective,
-          targetEmotion: content.targetEmotion,
+          targetEmotion: assignedEmotion || content.targetEmotion,
           visualNotes: content.visualNotes,
           contentPillar: content.contentPillar,
           status: ContentStatus.DRAFT,
@@ -175,6 +192,7 @@ export class ContentStrategyService {
     day: Date,
     totalPostsInMonth: number,
     contentFormat: ContentFormatType,
+    targetEmotion?: string,
   ): Promise<GeneratedContent> {
     const dayName = format(day, 'EEEE', { locale: es });
     const dateStr = format(day, "d 'de' MMMM, yyyy", { locale: es });
@@ -196,6 +214,7 @@ export class ContentStrategyService {
       dayName,
       dateStr,
       totalPostsInMonth,
+      targetEmotion,
     };
 
     // Get format-specific prompts

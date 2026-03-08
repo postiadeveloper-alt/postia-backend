@@ -1,4 +1,4 @@
-import { Controller, Post, UseGuards, UseInterceptors, UploadedFile, Req, Get, Body, BadRequestException, Query } from '@nestjs/common';
+import { Controller, Post, UseGuards, UseInterceptors, UploadedFile, Req, Get, Body, BadRequestException, Query, Patch, Param } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ImageProcessingService } from './image-processing.service';
@@ -80,6 +80,16 @@ export class ImageProcessingController {
         return this.imageProcessingService.listOutputs(req.user.id, businessProfileId);
     }
 
+    @Patch(':id/emotion')
+    @ApiOperation({ summary: 'Update the targetEmotion of an image asset' })
+    async updateAssetEmotion(
+        @Req() req,
+        @Param('id') id: string,
+        @Body('targetEmotion') targetEmotion: string,
+    ) {
+        return this.imageProcessingService.updateAssetEmotion(req.user.id, id, targetEmotion);
+    }
+
     @Post('upload/logo')
     @UseInterceptors(FileInterceptor('file'))
     @ApiConsumes('multipart/form-data')
@@ -115,19 +125,95 @@ export class ImageProcessingController {
         @Req() req,
         @Body() body: GenerateWithFormatDto,
     ) {
+        console.log('[Controller] generate-with-format body:', JSON.stringify({
+            format: body.format, width: body.width, height: body.height,
+            cropX: body.cropX, cropY: body.cropY, scale: body.scale,
+            templatePath: body.templatePath?.substring(0, 40),
+        }));
+
         return this.imageProcessingService.generateImageWithFormat(
             req.user.id,
             body.templatePath,
             body.contentPath,
             {
-                format: body.format || 'story',
-                width: body.width || 1080,
-                height: body.height || 1920,
-                cropX: body.cropX || 0,
-                cropY: body.cropY || 0,
-                scale: body.scale || 1
+                format: body.format ?? 'story',
+                width: body.width ?? 1080,
+                height: body.height ?? 1920,
+                cropX: body.cropX ?? 0,
+                cropY: body.cropY ?? 0,
+                scale: body.scale ?? 1,
+                overlayText: body.overlayText,
+                overlayFont: body.overlayFont,
+                overlayColor: body.overlayColor,
+                overlaySize: body.overlaySize,
+                overlayX: body.overlayX,
+                overlayY: body.overlayY,
+                targetEmotion: body.targetEmotion,
             },
             body.businessProfileId,
+        );
+    }
+
+    @Post('generate-with-format-inline')
+    @UseInterceptors(FileInterceptor('templateFile'))
+    @ApiConsumes('multipart/form-data')
+    @ApiOperation({ summary: 'Generate with an inline template buffer (no GCS path required for template)' })
+    async generateImageWithFormatInline(
+        @Req() req,
+        @UploadedFile() templateFile: Express.Multer.File,
+    ) {
+        // Read body fields directly from req.body to bypass ValidationPipe whitelisting
+        // (with whitelist:true + forbidNonWhitelisted:true, @Body() body:any would strip all fields)
+        const body = req.body;
+
+        if (!templateFile) throw new BadRequestException('templateFile is required');
+        if (!body.contentPath) throw new BadRequestException('contentPath is required');
+
+        // Multipart form values arrive as strings — parse to numbers explicitly
+        const cropX  = Number(body.cropX);
+        const cropY  = Number(body.cropY);
+        const scale  = Number(body.scale);
+        const width  = Number(body.width);
+        const height = Number(body.height);
+
+        console.log('[Controller] generate-with-format-inline body:', JSON.stringify({
+            format: body.format, width, height, cropX, cropY, scale,
+            rawCropX: body.cropX, rawScale: body.scale,
+            contentPath: body.contentPath?.substring(0, 40),
+        }));
+
+        return this.imageProcessingService.generateImageWithFormatInline(
+            req.user.id,
+            templateFile,
+            body.contentPath,
+            {
+                format: body.format || 'post',
+                width:  isFinite(width)  ? width  : 1080,
+                height: isFinite(height) ? height : 1080,
+                cropX:  isFinite(cropX)  ? cropX  : 0,
+                cropY:  isFinite(cropY)  ? cropY  : 0,
+                scale:  isFinite(scale)  ? scale  : 1,
+                overlayText: body.overlayText,
+                overlayFont: body.overlayFont,
+                overlayColor: body.overlayColor,
+                overlaySize: body.overlaySize ? Number(body.overlaySize) : undefined,
+                overlayX: body.overlayX ? Number(body.overlayX) : undefined,
+                overlayY: body.overlayY ? Number(body.overlayY) : undefined,
+                targetEmotion: body.targetEmotion,
+            },
+            body.businessProfileId,
+        );
+    }
+
+    @Get('templates/preview')
+    @ApiOperation({ summary: 'Get base64 preview PNGs for all 6 template types (no GCS storage)' })
+    async getTemplatesPreviews(
+        @Query('primary') primary: string,
+        @Query('secondary') secondary: string,
+    ) {
+        return this.imageProcessingService.getTemplatesPreviews(
+            primary || '#ee3ec9',
+            secondary || '#9b2c82',
         );
     }
 }
